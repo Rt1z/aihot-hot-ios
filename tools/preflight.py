@@ -28,6 +28,7 @@ JSON_FILES = [
     "AIHOT/Assets.xcassets/AppIcon.appiconset/Contents.json",
     "AIHOTTests/Fixtures/hot-topics.json",
     "AIHOTTests/Fixtures/story.json",
+    "AIHOTTests/Fixtures/anysearch-search.json",
 ]
 
 PYTHON_FILES = [

@@ -12,20 +12,42 @@ struct AIChatTurn: Equatable {
     let text: String
 }
 
+/// 当前这一轮里已经发生过的一次「模型要工具 → 我们给结果」往返。
+///
+/// 只存在于**当前这一轮**内：跨轮的历史是纯文本（见 `AIChatRequestBuilder` 顶部说明）。
+struct AIChatToolRound {
+    /// 模型在发起工具调用前写的话（可能为空）。
+    let assistantText: String
+    let calls: [AIChatToolCall]
+    let results: [AIChatToolResultPayload]
+
+    struct AIChatToolResultPayload {
+        let toolUseID: String?
+        let text: String
+        let isError: Bool
+    }
+}
+
 /// 两套协议的请求体与请求头。全是纯函数，便于单测。
 ///
 /// 所有「有风险、可能需要一句话改掉」的值都收在这个文件里，并且都带注释。
+///
+/// 关于多轮历史：**跨轮只回传文本**，只在本轮跑工具时才带上工具块。
+/// - 纯文本历史是完全合法的对话形状；
+/// - Anthropic「保留 thinking」的历史校验只校验你**回传的** thinking 块 ——
+///   一个都不回传，就完全不在它的射程内；
+/// - 本轮的工具块是我们自己按流式分片拼出来的（`AIChatToolCallAccumulator`），
+///   不是从别处搬来的，所以不存在签名对不上的问题。
 enum AIChatRequestBuilder {
 
     // MARK: - 可能要改的常量
 
     /// 关掉它会去掉 `fallbacks` 与对应的 beta 头。
     ///
-    /// 官方文档把这组（`fallbacks: "default"` + `anthropic-beta:
-    /// server-side-fallback-2026-07-01`）写成 claude-opus-5-5 的默认推荐，被审核
-    /// 拒绝时会自动换个模型重跑一次。但「它和流式 + 服务端工具同时使用」没有文档
-    /// 背书。**如果每次请求都 400 且报错里提到 fallback / anthropic-beta，
-    /// 把这里改成 false 即可**（README 也写了这条）。
+    /// 官方文档把 `fallbacks: "default"` + `anthropic-beta:
+    /// server-side-fallback-2026-07-01` 写成 claude-opus-5-5 的默认推荐：被审核
+    /// 拒绝时会自动换个模型重跑一次。**如果每次请求都 400 且报错里提到
+    /// fallback / anthropic-beta，把这里改成 false 即可**（README 也写了这条）。
     static let enableRefusalFallbacks = true
 
     private static let fallbackBetaHeader = "server-side-fallback-2026-07-01"
@@ -100,16 +122,73 @@ enum AIChatRequestBuilder {
         }
     }
 
+    // MARK: - 工具声明（两条协议各自的形状）
+
+    private static let searchSchema: [String: Any] = [
+        "type": "object",
+        "properties": [
+            "query": ["type": "string", "description": "搜索关键词，简洁一点效果更好"],
+        ],
+        "required": ["query"],
+    ]
+
+    private static let readURLSchema: [String: Any] = [
+        "type": "object",
+        "properties": [
+            "url": ["type": "string", "description": "要读取的完整网址（http/https）"],
+        ],
+        "required": ["url"],
+    ]
+
+    private static let searchDescription =
+        "联网搜索。需要最新信息、后续进展、或资料里没有的事实时用它；只给关键词，不要整句话。"
+
+    private static let readURLDescription =
+        "读取一个网页并转成 Markdown。可以读资料里给出的原文链接，或搜索结果里的某一条。"
+
+    static var anthropicTools: [[String: Any]] {
+        [
+            [
+                "name": AIChatToolName.webSearch,
+                "description": searchDescription,
+                "input_schema": searchSchema,
+            ],
+            [
+                "name": AIChatToolName.readURL,
+                "description": readURLDescription,
+                "input_schema": readURLSchema,
+            ],
+        ]
+    }
+
+    static var openAICompatibleTools: [[String: Any]] {
+        [
+            [
+                "type": "function",
+                "function": [
+                    "name": AIChatToolName.webSearch,
+                    "description": searchDescription,
+                    "parameters": searchSchema,
+                ],
+            ],
+            [
+                "type": "function",
+                "function": [
+                    "name": AIChatToolName.readURL,
+                    "description": readURLDescription,
+                    "parameters": readURLSchema,
+                ],
+            ],
+        ]
+    }
+
     // MARK: - 把资料拼进第一条 user 消息
 
     /// 把资料并进**第一条 user 消息**，其余原样。
     ///
-    /// 为什么必须放进消息、而不是放进 system：Anthropic 的 `web_fetch` 只能抓
-    /// **对话里已经出现过**的 URL。只写在 system 里属于模糊地带，很可能读不到原文，
-    /// 那样「按需读原报道」就静默失效了（模型会改去搜网页、或者干脆说读不到）。
-    /// 放进第一条 user 消息则是明确的。
-    ///
-    /// 顺带的好处：system 与 tools 逐字不变、messages 只追加，缓存前缀不会被打断。
+    /// 为什么必须放进消息、而不是放进 system：这样 system 与 tools 逐字不变、
+    /// messages 只追加，缓存前缀不会被打断；同时原文链接也就明确地「在对话里」，
+    /// 模型可以直接把它的 URL 交给 read_url。
     static func contextualTurns(_ turns: [AIChatTurn], newsContext: String) -> [AIChatTurn] {
         guard let index = turns.firstIndex(where: { $0.role == .user }) else { return turns }
         var result = turns
@@ -126,10 +205,15 @@ enum AIChatRequestBuilder {
         config: AIChatConfig,
         system: String,
         newsContext: String,
-        turns: [AIChatTurn]
+        turns: [AIChatTurn],
+        toolRounds: [AIChatToolRound] = []
     ) -> Data? {
-        let messages = contextualTurns(turns, newsContext: newsContext).map {
+        var messages: [[String: Any]] = contextualTurns(turns, newsContext: newsContext).map {
             ["role": $0.role.rawValue, "content": $0.text]
+        }
+        for round in toolRounds {
+            messages.append(anthropicAssistantMessage(round))
+            messages.append(anthropicToolResultMessage(round))
         }
 
         var body: [String: Any] = [
@@ -138,21 +222,12 @@ enum AIChatRequestBuilder {
             "stream": true,
             "system": system,
             "messages": messages,
+            "tools": anthropicTools,
             // 自适应思考；display 默认是 omitted，那在流式下表现为「长时间不出字」，
             // 所以显式要一份可读摘要（这里只拿它点亮「思考中」状态，不显示内容）。
             "thinking": ["type": "adaptive", "display": "summarized"],
             "output_config": ["effort": effort],
         ]
-
-        if config.supportsWebTools {
-            // 这两个是 Anthropic 托管的服务端工具：联网搜索与读取原文都由它完成，
-            // 不需要额外的搜索 Key，App 里也不用写工具循环。
-            // 别再单独声明 code_execution —— 会多出一个执行环境把模型搞乱。
-            body["tools"] = [
-                ["type": "web_search_20260209", "name": "web_search"],
-                ["type": "web_fetch_20260209", "name": "web_fetch"],
-            ]
-        }
 
         if enableRefusalFallbacks {
             body["fallbacks"] = "default"
@@ -165,22 +240,83 @@ enum AIChatRequestBuilder {
         config: AIChatConfig,
         system: String,
         newsContext: String,
-        turns: [AIChatTurn]
+        turns: [AIChatTurn],
+        toolRounds: [AIChatToolRound] = []
     ) -> Data? {
-        var messages: [[String: String]] = [["role": "system", "content": system]]
+        var messages: [[String: Any]] = [["role": "system", "content": system]]
         messages += contextualTurns(turns, newsContext: newsContext).map {
             ["role": $0.role.rawValue, "content": $0.text]
         }
+        for round in toolRounds {
+            messages.append(openAIAssistantMessage(round))
+            messages += openAIToolMessages(round)
+        }
 
-        // 只发这几个字段：中转站对可选字段的容忍度参差不齐，body 越简单越容易活下来。
+        // 只发必要的字段：中转站对可选字段的容忍度参差不齐，body 越简单越容易活下来。
         let body: [String: Any] = [
             "model": config.model,
             "messages": messages,
             "stream": true,
             "max_tokens": openAICompatibleMaxTokens,
+            "tools": openAICompatibleTools,
         ]
 
         return encode(body)
+    }
+
+    // MARK: - 工具往返（两家的形状完全不同）
+
+    /// Anthropic：助手那条要原样带上 `tool_use` 块，下一条 user 用 `tool_result` 回。
+    static func anthropicAssistantMessage(_ round: AIChatToolRound) -> [String: Any] {
+        var content: [[String: Any]] = []
+        if !round.assistantText.isEmpty {
+            content.append(["type": "text", "text": round.assistantText])
+        }
+        for call in round.calls {
+            var block: [String: Any] = [
+                "type": "tool_use",
+                "name": call.name ?? "",
+                "input": call.arguments,
+            ]
+            if let id = call.id { block["id"] = id }
+            content.append(block)
+        }
+        return ["role": "assistant", "content": content]
+    }
+
+    static func anthropicToolResultMessage(_ round: AIChatToolRound) -> [String: Any] {
+        let content: [[String: Any]] = round.results.map { result in
+            var block: [String: Any] = ["type": "tool_result", "content": result.text]
+            if let id = result.toolUseID { block["tool_use_id"] = id }
+            if result.isError { block["is_error"] = true }
+            return block
+        }
+        return ["role": "user", "content": content]
+    }
+
+    /// OpenAI 兼容：助手那条带 `tool_calls`，结果用 `role: "tool"` 一条条回。
+    static func openAIAssistantMessage(_ round: AIChatToolRound) -> [String: Any] {
+        let calls: [[String: Any]] = round.calls.map { call in
+            [
+                "id": call.id ?? "",
+                "type": "function",
+                "function": [
+                    "name": call.name ?? "",
+                    // 参数要回传**原始字符串**，不能回传解析后的对象
+                    "arguments": call.argumentsJSON.isEmpty ? "{}" : call.argumentsJSON,
+                ],
+            ]
+        }
+        // 有 tool_calls 时 content 按官方形状是 null（空字符串有些中转站会不高兴）
+        let content: Any = round.assistantText.isEmpty ? NSNull() : round.assistantText
+        return ["role": "assistant", "content": content, "tool_calls": calls]
+    }
+
+    static func openAIToolMessages(_ round: AIChatToolRound) -> [[String: Any]] {
+        round.results.compactMap { result in
+            guard let id = result.toolUseID, !id.isEmpty else { return nil }
+            return ["role": "tool", "tool_call_id": id, "content": result.text]
+        }
     }
 
     private static func encode(_ body: [String: Any]) -> Data? {

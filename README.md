@@ -121,7 +121,8 @@
 ## 4. AI 对话（要自己填 Key）
 
 详情页右上角有个对话按钮：点开就能就**这一条**新闻追问，多轮、流式回复。模型手里有这条的
-摘要、来源与报道时间线；走 Anthropic 协议时，它还会自己去联网搜索、或直接读取原文。
+摘要、来源与报道时间线；**需要时它会自己去联网搜索、或打开某个网页读原文** ——
+搜不搜、搜什么由它自己决定（标准工具调用：它提出要调哪个工具，App 去执行，再把结果交回去）。
 
 本 App 不带任何内置额度，用的是**你自己的 Key**，在 **设置 → AI 对话** 里填：
 
@@ -130,21 +131,27 @@
 | 接口地址 | `https://api.anthropic.com`（可改） | 自己填，如 `https://api.deepseek.com/v1` |
 | 模型 | `claude-opus-5-5` | 自己填，如 `deepseek-chat` |
 | API Key | 你的 Key | 你的 Key |
+| 联网搜索 / 读网页 | 可以 | 可以（两边一样） |
 
-两条路的能力**不一样**（设置页里会随选择变化提示，别切过去以后才发现）：
+联网搜索与读取网页都由 [AnySearch](https://anysearch.com) 提供，**两条协议走同一条路**：
 
-- **Anthropic**：联网搜索与读取原文由 Anthropic 的服务端工具完成，不需要额外的搜索 Key。
-- **OpenAI 兼容**：**没有**联网搜索、也不会去读原文 —— 那两项依赖 Anthropic 的服务端工具，
-  要自己再接一个搜索服务。这里只能就已有的摘要与时间线对话。
+| AnySearch | |
+| --- | --- |
+| 接口地址 | 固定 `https://api.anysearch.com/mcp`，不用填 |
+| Key | **可选**。留空即用匿名（限速更低）。要高额度就到 anysearch.com 的 Console 建一个 |
+| 提供的能力 | `search` 联网搜索、`extract` 把网页转成 Markdown 交给模型 |
+| 结果形态 | 已经是排好的 Markdown（标题 + URL + 摘要），模型可以直接引用 URL 再让 App 去读那一页 |
 
 几个要知道的点：
 
 - **先点「测试连接」**：它只拉一次模型列表、不产生生成计费，并顺带核对你填的模型名在不在里面。
-- **密钥存在系统钥匙串里**，只在本机、不进备份。万一这台设备的签名环境不允许用钥匙串，
-  会退回应用内存储，并**在设置页里明确写出来**（不会静默降级）。
+- **Key 存在系统钥匙串里**（三份：两条协议各一份 + AnySearch 一份），只在本机、不进备份。
+  万一这台设备的签名环境不允许用钥匙串，会退回应用内存储，并**在设置页里明确写出来**。
+- **AnySearch 的 Key 填错了不会自动退回匿名**，会直接报「Key 无效」；把那个字段清空即可继续用匿名。
 - **对话不落盘**：关掉弹窗就没了。
-- **费用**按你所用服务商的价目算。Anthropic 那侧联网搜索是**按次**额外计费的，
-  所以「这条有后续吗」这类问题会比纯问答贵一些。
+- **费用**：模型那边按你所用服务商计费；AnySearch 每搜一次、每读一个网页也算一次调用
+  （匿名有免费额度）。所以模型在一轮里连搜三次，就是三次搜索的量。
+- **一次提问最多跑 5 轮工具**，防止它来回搜个没完。
 - **国内网络**：`api.anthropic.com` 直连通常不通，接口地址可以填兼容 Anthropic Messages 协议的
   中转地址。**只支持 https**：iOS 默认不允许明文 HTTP，填 `http://` 会明确报错；真要让某个
   局域网地址走 http，得自己在 `AIHOT/Info.plist` 里加 `NSExceptionDomains` 例外。
@@ -170,8 +177,10 @@ AIHOT/
                             FavoritesStore（收藏落盘，UserDefaults）、
                             StoryID、AppSettings、
                             HTMLTextExtractor + HotPageEnricher（网页文本增强）
-                            SSEParser、AIChatConfig、AIChatRequestBuilder、
-                            AIChatNewsContext、AIChatSecretStore（钥匙串）、AIChatAPI（AI 对话）
+                            SSEParser（流式解析）、AIChatTool（工具调用拼接）、
+                            AIChatConfig、AIChatRequestBuilder、AIChatNewsContext、
+                            AIChatSecretStore（钥匙串）、AIChatAPI（AI 对话）、
+                            AnySearchAPI（联网搜索 / 读网页）
   Features/Hot/             榜单页、大卡、紧凑行、RelativeTime
   Features/Favorites/       收藏列表、收藏行
   Features/Story/           详情页（AI 摘要 + 时间线 + 收藏书签 + 对话弹窗 AIChatModel/AIChatView）
@@ -207,7 +216,9 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 | 下拉刷新像「没反应」 | 这是有意的：60 秒内不重复请求（接口 s-maxage 约定）。等过 60 秒再拉，或直接杀掉重开 |
 | 显示「请求过于频繁」 | 碰到接口 429，App 会在 `Retry-After` 到期前不再发请求，等提示的时间过去即可 |
 | 对话报 400，且错误里提到 fallback / anthropic-beta | 那是 `AIChatRequestBuilder.enableRefusalFallbacks` 那两行（`fallbacks` + beta 头）没被服务端接受。把它改成 `false` 即可 |
-| 对话报「密钥无效或没有权限」 | 检查「设置 → AI 对话」里协议与 Key 是否对得上（两条协议的 Key 是分开存的） |
+| 对话报「密钥无效或没有权限」 | 检查「设置 → AI 对话」里协议与 Key 是否对得上（模型 Key 与搜索 Key 是分开存的三份） |
+| 对话里搜不到东西 / 报「搜索失败」 | 看错误里的原话。AnySearch 匿名有免费额度，用光了要么换个 Key 要么等；**Key 无效时它不会退回匿名**，把搜索 Key 清空即可继续用匿名 |
+| 模型反复调同一个工具、或根本不搜 | 工具名/参数写错时它会收到 is_error 并自己重试；若一直如此，把当轮的错误信息发出来（界面会显示接口原话） |
 | 对话报「接口地址是 http」 | iOS 默认不允许明文 HTTP。改用 https，或按第 4 节给该地址单独加例外 |
 | 对话一直不出字、结束后才一次性冒出来 | 若走的是自己的中转，确认它没有压缩/缓存响应；App 侧已经显式要求 `Accept-Encoding: identity` |
 | 「测试连接」说模型名不在列表里 | 模型名打错了，或这个 Key 用不了这个模型 |
@@ -237,5 +248,7 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 - [ ] 设置 → AI 对话 填好地址/模型/Key，点「测试连接」返回「连接正常 · …」
 - [ ] 详情页右上角对话按钮能打开弹窗，问一个不需要联网的问题能流式出字
 - [ ] （走 Anthropic 时）问一个需要联网的问题，状态行出现「正在联网搜索…」
+- [ ] 问一个需要联网的问题（如「这条有后续吗」），状态行出现「正在联网搜索：…」，回答里带来源
+- [ ] 把 AnySearch Key 留空也能搜（匿名）
 - [ ] 生成中点「停止」能立刻停下，而且**不**弹错误条
 - [ ] 关掉弹窗再打开，对话是空的（不落盘）

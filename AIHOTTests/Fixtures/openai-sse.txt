@@ -1,17 +1,17 @@
 data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"先看用户问的是什么。"},"finish_reason":null}]}
+data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"先看看有没有后续。"},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"摘要里已经有结论了。"},"finish_reason":null}]}
+data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"我先查一下"},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"这条说的是"},"finish_reason":null}]}
+data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"有没有后续。"},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":" Karpathy 对 LLM"},"finish_reason":null}]}
+data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_01A","type":"function","function":{"name":"web_search","arguments":""}}]},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":" 认知鸿沟的看法。"},"finish_reason":null}]}
+data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\":"}}]},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"他估算全球约 60 亿人几乎没接触过大模型。"},"finish_reason":null}]}
+data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Karpathy LLM 认知鸿沟 后续\"}"}}]},"finish_reason":null}]}
 
-data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+data: {"id":"chatcmpl-9x","object":"chat.completion.chunk","created":1760000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
 
 data: [DONE]

@@ -33,6 +33,9 @@ struct AboutView: View {
     @State private var apiKeyDraft = ""
     @State private var apiKeySaved = false
     @State private var secretFellBack = false
+    /// AnySearch 的 Key 是**可选**的：留空走匿名，搜索照样能用。
+    @State private var anySearchKeyDraft = ""
+    @State private var anySearchFellBack = false
 
     @State private var isTestingConnection = false
     @State private var testResult: String?
@@ -117,10 +120,25 @@ struct AboutView: View {
                         .keyboardType(.asciiCapable)
                 }
 
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("AnySearch Key（可选）")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.textTertiary)
+                    SecureField("留空即用匿名（限速更低）", text: $anySearchKeyDraft)
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textPrimary)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.asciiCapable)
+                }
+
                 Button(action: saveAPIKey) {
                     Label(apiKeySaved ? "已保存密钥" : "保存密钥", systemImage: "key")
                 }
-                .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        && anySearchKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
 
                 Button {
                     Task { await testConnection() }
@@ -142,9 +160,7 @@ struct AboutView: View {
                 Text("AI 对话")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(selectedProtocol.supportsWebTools
-                         ? "Anthropic 协议支持联网搜索与读取原文，两者由 Anthropic 服务端完成，不需要额外的搜索 Key。"
-                         : "OpenAI 兼容协议不支持联网搜索、也不会去读原文 —— 那两项依赖 Anthropic 的服务端工具，要另接一个搜索服务。这里只能对话。")
+                    Text("联网搜索与读取原文由 AnySearch 提供，两条协议都能用；AnySearch Key 留空即用匿名（限速更低）。")
                     Text("国内直连 api.anthropic.com 通常不通，接口地址可填兼容 Anthropic Messages 协议的中转地址。")
                     Text("「测试连接」只拉一次模型列表，不产生生成计费。")
                     Text("密钥存在系统钥匙串里，只保存在本机。")
@@ -265,12 +281,16 @@ struct AboutView: View {
     private func loadAPIKey() {
         apiKeyDraft = AIChatSecretStore.shared.key(for: selectedProtocol)
         secretFellBack = AIChatSecretStore.shared.isUsingFallback(for: selectedProtocol)
+        anySearchKeyDraft = AIChatSecretStore.shared.anySearchKey()
+        anySearchFellBack = AIChatSecretStore.shared.isUsingAnySearchFallback()
         apiKeySaved = false
     }
 
     private func saveAPIKey() {
         AIChatSecretStore.shared.setKey(apiKeyDraft, for: selectedProtocol)
+        AIChatSecretStore.shared.setAnySearchKey(anySearchKeyDraft)
         secretFellBack = AIChatSecretStore.shared.isUsingFallback(for: selectedProtocol)
+        anySearchFellBack = AIChatSecretStore.shared.isUsingAnySearchFallback()
         apiKeySaved = true
     }
 

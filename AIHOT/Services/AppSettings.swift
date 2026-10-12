@@ -49,6 +49,11 @@ enum AppSettings {
         }
     }
 
+    /// AnySearch 的 Key。**可选**：不填就走匿名（限速更低），联网搜索照样能用。
+    static func anySearchKey() -> String {
+        AIChatSecretStore.shared.anySearchKey()
+    }
+
     /// 按当前设置解析出一份可用配置；没配好（或没填 Key）返回 nil。
     static func currentAIChatConfig() -> AIChatConfig? {
         let defaults = UserDefaults.standard

@@ -114,4 +114,25 @@ final class AIChatSecretStoreTests: XCTestCase {
         XCTAssertEqual(store.key(for: .openAICompatible), "")
         XCTAssertTrue(backend.storage.isEmpty)
     }
+
+    /// AnySearch 的 Key 是独立的一份，而且**可选**：清空之后搜索照样能用（匿名）。
+    func testAnySearchKeyIsSeparateAndOptional() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+
+        store.setKey("sk-llm", for: .anthropicMessages)
+        store.setAnySearchKey("as-search")
+        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-llm")
+        XCTAssertEqual(store.anySearchKey(), "as-search")
+
+        store.setAnySearchKey("")
+        XCTAssertEqual(store.anySearchKey(), "", "留空就是匿名，不是错误")
+
+        store.clear()
+        XCTAssertEqual(store.key(for: .anthropicMessages), "")
+        XCTAssertEqual(store.anySearchKey(), "")
+    }
 }

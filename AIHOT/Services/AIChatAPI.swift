@@ -47,7 +47,8 @@ final class AIChatAPI: @unchecked Sendable {
         config: AIChatConfig,
         system: String,
         newsContext: String,
-        turns: [AIChatTurn]
+        turns: [AIChatTurn],
+        toolRounds: [AIChatToolRound] = []
     ) async throws -> AIChatStreamResponse {
         guard let url = AIChatRequestBuilder.chatEndpoint(for: config) else {
             throw APIError(kind: .transport("bad url"), message: "接口地址不可用，请到「设置 → AI 对话」检查")
@@ -57,11 +58,13 @@ final class AIChatAPI: @unchecked Sendable {
         switch config.chatProtocol {
         case .anthropicMessages:
             body = AIChatRequestBuilder.anthropicBody(
-                config: config, system: system, newsContext: newsContext, turns: turns
+                config: config, system: system, newsContext: newsContext,
+                turns: turns, toolRounds: toolRounds
             )
         case .openAICompatible:
             body = AIChatRequestBuilder.openAICompatibleBody(
-                config: config, system: system, newsContext: newsContext, turns: turns
+                config: config, system: system, newsContext: newsContext,
+                turns: turns, toolRounds: toolRounds
             )
         }
         guard let payload = body else {

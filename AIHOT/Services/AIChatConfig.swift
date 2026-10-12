@@ -34,13 +34,6 @@ enum AIChatProtocol: String, CaseIterable, Identifiable {
         case .openAICompatible: return "deepseek-chat"
         }
     }
-
-    /// 「联网搜索」和「读原报道」是靠 Anthropic 的服务端工具做的，
-    /// OpenAI 兼容那侧没有对应能力（要自己再接一个搜索服务 + 再一个 Key）。
-    /// 设置界面要照实说，别让人以为切过去也能搜。
-    var supportsWebTools: Bool {
-        self == .anthropicMessages
-    }
 }
 
 /// 一次对话要用到的全部配置（默认值已经解析好）。
@@ -50,8 +43,6 @@ struct AIChatConfig: Equatable {
     let baseURL: URL
     let model: String
     let apiKey: String
-
-    var supportsWebTools: Bool { chatProtocol.supportsWebTools }
 
     /// 明文 HTTP 会被 iOS 的 ATS 拦掉（见 AIChatAPI 的错误翻译）。
     var isPlainHTTP: Bool {

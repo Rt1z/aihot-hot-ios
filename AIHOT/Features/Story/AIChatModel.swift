@@ -12,14 +12,21 @@ struct AIChatMessage: Identifiable, Equatable {
 /// 详情页那个对话弹窗的状态与流式循环。
 ///
 /// 只活在这次弹窗打开期间：**不落盘**，关掉即随视图销毁（这也是为什么这里
-/// 没有任何持久化代码）。多轮历史只回传文本，理由见 AIChatRequestBuilder。
+/// 没有任何持久化代码）。
+///
+/// 工具循环：模型可以要求调用 `web_search` / `read_url`，由 AnySearch 执行，
+/// 结果作为 tool_result 回传，直到它给出最终回答。两家协议的工具块形状完全不同，
+/// 但都先被 `SSEParser` 归一成同一套事件、再由 `AIChatToolCallAccumulator` 拼好，
+/// 所以这个循环本身不必分协议。
+///
+/// **跨轮只回文本**：本轮的工具块只在本轮的请求里带上（见 AIChatRequestBuilder）。
 @MainActor
 final class AIChatModel: ObservableObject {
 
     @Published private(set) var messages: [AIChatMessage] = []
     @Published var input: String = ""
     @Published private(set) var isStreaming = false
-    /// 状态行：思考中 / 正在联网搜索 / 正在读取原文
+    /// 状态行：思考中 / 正在联网搜索：<关键词> / 正在读取网页
     @Published private(set) var statusText: String?
     @Published private(set) var notice: String?
     /// 每刷新一次 +1，界面据此滚到底（用 Int 而不是监听 messages：
@@ -35,6 +42,9 @@ final class AIChatModel: ObservableObject {
     /// 攒多久刷一次。text_delta 常常只有 1–5 个字，每个都改 @Published
     /// 会让 SwiftUI 逐字重排、长回复明显卡顿。
     private static let flushInterval: Duration = .milliseconds(70)
+
+    /// 一次提问里最多跑几轮工具。防止模型来回搜个没完 —— 每轮都是钱。
+    private static let maximumToolRounds = 5
 
     init(api: AIChatAPI = .shared) {
         self.api = api
@@ -74,13 +84,15 @@ final class AIChatModel: ObservableObject {
             item: item, story: story, prefetchedDigest: prefetchedDigest
         )
         let system = AIChatNewsContext.system
+        let searchKey = AppSettings.anySearchKey()
 
         streamTask = Task { [weak self] in
             await self?.run(
                 config: config,
                 system: system,
                 newsContext: newsContext,
-                history: history
+                history: history,
+                searchKey: searchKey
             )
         }
     }
@@ -103,25 +115,69 @@ final class AIChatModel: ObservableObject {
 
     // MARK: - 流式循环
 
+    /// 一轮流式读取攒出来的东西。
+    private struct StreamedRound {
+        var text = ""
+        var toolCalls: [AIChatToolCall] = []
+        var stopReason: String?
+        var sawDone = false
+    }
+
     private func run(
         config: AIChatConfig,
         system: String,
         newsContext: String,
-        history: [AIChatTurn]
+        history: [AIChatTurn],
+        searchKey: String
     ) async {
         defer { finishStreaming() }
 
-        do {
-            let response = try await api.streamChat(
-                config: config, system: system, newsContext: newsContext, turns: history
-            )
-            switch response {
-            case .complete(let text):
-                append(text)
-                flushNow()
+        var toolRounds: [AIChatToolRound] = []
 
-            case .stream(let bytes):
-                try await consume(bytes, chatProtocol: config.chatProtocol)
+        do {
+            while true {
+                let response = try await api.streamChat(
+                    config: config,
+                    system: system,
+                    newsContext: newsContext,
+                    turns: history,
+                    toolRounds: toolRounds
+                )
+
+                var round = StreamedRound()
+                switch response {
+                case .complete(let text):
+                    // 中转站没走流式：一次性给完整回答，也就没有工具可跑
+                    append(text)
+                    flushNow()
+                    return
+
+                case .stream(let bytes):
+                    round = try await consume(bytes, chatProtocol: config.chatProtocol)
+                }
+
+                // 只要有工具调用就跑 —— 不看 stop_reason：有些中转站给了
+                // tool_calls 却把 finish_reason 报成 "stop"。
+                guard !round.toolCalls.isEmpty else {
+                    applyStopReason(round.stopReason, sawDone: round.sawDone)
+                    return
+                }
+
+                guard toolRounds.count < Self.maximumToolRounds else {
+                    notice = "这一轮已经查了 \(Self.maximumToolRounds) 次，先说到这。"
+                    return
+                }
+
+                let results = try await execute(round.toolCalls, searchKey: searchKey)
+                toolRounds.append(
+                    AIChatToolRound(
+                        assistantText: round.text,
+                        calls: round.toolCalls,
+                        results: results
+                    )
+                )
+                // 下一轮接着往同一个气泡里写
+                setStatus("正在整理…")
             }
         } catch is CancellationError {
             // 用户点了「停止」或关掉了弹窗：这是正常收场，不是错误。
@@ -136,44 +192,90 @@ final class AIChatModel: ObservableObject {
         }
     }
 
-    private func consume(_ bytes: URLSession.AsyncBytes, chatProtocol: AIChatProtocol) async throws {
+    private func consume(
+        _ bytes: URLSession.AsyncBytes,
+        chatProtocol: AIChatProtocol
+    ) async throws -> StreamedRound {
         var reader = SSEFrameReader()
-        var sawDone = false
-        var stopReason: String?
+        var accumulator = AIChatToolCallAccumulator()
+        var round = StreamedRound()
 
         for try await line in bytes.lines {
             try Task.checkCancellation()
             guard let frame = reader.consume(line: line) else { continue }
-            guard let event = decode(frame, chatProtocol: chatProtocol) else { continue }
+            try process(decode(frame, chatProtocol: chatProtocol), round: &round, accumulator: &accumulator)
+        }
+        if let frame = reader.flush() {
+            try process(decode(frame, chatProtocol: chatProtocol), round: &round, accumulator: &accumulator)
+        }
+
+        flushNow()
+        round.toolCalls = accumulator.result
+        return round
+    }
+
+    private func process(
+        _ events: [AIChatEvent],
+        round: inout StreamedRound,
+        accumulator: inout AIChatToolCallAccumulator
+    ) throws {
+        accumulator.consume(events)
+
+        for event in events {
             switch event {
             case .text(let chunk):
+                round.text += chunk
                 append(chunk)
             case .thinking:
                 setStatus("思考中…")
-            case .toolStarted(let name):
-                setStatus(name == "web_search" ? "正在联网搜索…" : "正在读取原文…")
+            case .toolCallStarted, .toolCallArguments:
+                break // 交给累加器
             case .stopReason(let reason):
-                stopReason = reason
+                round.stopReason = reason
             case .error(let message):
-                throw APIError(kind: .server(200), message: message)
+                throw APIError(kind: .transport("stream"), message: message)
             case .done:
-                sawDone = true
+                round.sawDone = true
             }
         }
-
-        if let frame = reader.flush(), let event = decode(frame, chatProtocol: chatProtocol),
-           case .text(let chunk) = event {
-            append(chunk)
-        }
-        flushNow()
-        applyStopReason(stopReason, sawDone: sawDone)
     }
 
-    private func decode(_ frame: SSEFrame, chatProtocol: AIChatProtocol) -> AIChatEvent? {
+    private func decode(_ frame: SSEFrame, chatProtocol: AIChatProtocol) -> [AIChatEvent] {
         switch chatProtocol {
         case .anthropicMessages: return AnthropicSSEDecoder.decode(frame)
         case .openAICompatible: return OpenAISSSEDecoder.decode(frame)
         }
+    }
+
+    /// 跑模型要的工具。AnySearch 的 Key 是可选的（不填就匿名）。
+    private func execute(
+        _ calls: [AIChatToolCall],
+        searchKey: String
+    ) async throws -> [AIChatToolRound.AIChatToolResultPayload] {
+        let runner = AnySearchToolRunner(apiKey: searchKey)
+        var payloads: [AIChatToolRound.AIChatToolResultPayload] = []
+
+        for call in calls {
+            try Task.checkCancellation()
+            setStatus(activityText(for: call))
+            let outcome = await runner.execute(call: call)
+            payloads.append(
+                AIChatToolRound.AIChatToolResultPayload(
+                    toolUseID: call.id,
+                    text: outcome.text,
+                    isError: outcome.isError
+                )
+            )
+        }
+        return payloads
+    }
+
+    private func activityText(for call: AIChatToolCall) -> String {
+        let title = AIChatToolName.title(call.name ?? "")
+        if let query = call.string("query") {
+            return "\(title)：\(query)"
+        }
+        return title + "…"
     }
 
     /// 结束原因要**先于**看正文判断：被拒绝时正文是空的，

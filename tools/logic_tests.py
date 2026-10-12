@@ -302,103 +302,167 @@ class FrameReader:
         return frame
 
 
-def anthropic_event(frame):
+def anthropic_events(frame):
+    """与 AnthropicSSEDecoder.decode 对应：**一帧可能产出多个事件**。"""
     if frame is None:
-        return None
+        return []
     try:
         payload = json.loads(frame["data"])
     except ValueError:
-        return None
+        return []
 
     kind = payload.get("type")
     if kind == "content_block_delta":
         delta = payload.get("delta") or {}
-        if delta.get("type") == "text_delta":
+        dtype = delta.get("type")
+        if dtype == "text_delta":
             text = delta.get("text") or ""
-            return ("text", text) if text else None
-        if delta.get("type") == "thinking_delta":
-            return ("thinking", None)
-        return None  # signature_delta / input_json_delta / citations_delta
+            return [("text", text)] if text else []
+        if dtype == "thinking_delta":
+            return [("thinking", None)]
+        if dtype == "input_json_delta":
+            index = payload.get("index")
+            fragment = delta.get("partial_json") or ""
+            if index is None or not fragment:
+                return []
+            return [("tool_args", (index, fragment))]
+        return []  # signature_delta / citations_delta
     if kind == "content_block_start":
         block = payload.get("content_block") or {}
-        if block.get("type") == "server_tool_use":
-            return ("tool_started", block.get("name") or "")
-        return None
+        index = payload.get("index")
+        if block.get("type") == "tool_use" and index is not None:
+            return [("tool_started", (index, block.get("id"), block.get("name")))]
+        return []
     if kind == "message_delta":
         reason = (payload.get("delta") or {}).get("stop_reason")
-        return ("stop_reason", reason) if reason else None
+        return [("stop_reason", reason)] if reason else []
     if kind == "message_stop":
-        return ("done", None)
+        return [("done", None)]
     if kind == "error":
         failure = payload.get("error") or {}
-        return ("error", failure.get("message") or "流式响应里出现了一个错误")
-    return None
+        return [("error", failure.get("message") or "流式响应里出现了一个错误")]
+    return []
 
 
-def openai_event(frame):
+def openai_events(frame):
     if frame is None:
-        return None
+        return []
     data = frame["data"]
     if data == "[DONE]":
-        return ("done", None)
+        return [("done", None)]
     try:
         payload = json.loads(data)
     except ValueError:
-        return None
+        return []
 
     failure = payload.get("error") or {}
     if failure.get("message"):
-        return ("error", failure["message"])
+        return [("error", failure["message"])]
 
     choices = payload.get("choices") or []
     if not choices:
-        return None
+        return []
     choice = choices[0]
+    delta = choice.get("delta") or {}
+
+    events = []
+    for call in delta.get("tool_calls") or []:
+        index = call.get("index") or 0
+        function = call.get("function") or {}
+        name = function.get("name")
+        if name:
+            events.append(("tool_started", (index, call.get("id"), name)))
+        elif call.get("id"):
+            events.append(("tool_started", (index, call.get("id"), None)))
+        if function.get("arguments"):
+            events.append(("tool_args", (index, function["arguments"])))
+    if events:
+        return events
 
     finish = choice.get("finish_reason")
     if finish:
-        return ("stop_reason", finish)
-
-    delta = choice.get("delta") or {}
+        return [("stop_reason", finish)]
     content = delta.get("content")
     if content:
-        return ("text", content)
+        return [("text", content)]
     if delta.get("reasoning_content"):
-        return ("thinking", None)
-    return None
+        return [("thinking", None)]
+    return []
+
+
+def accumulate_tool_calls(events):
+    """与 AIChatToolCallAccumulator 对应：按 index 把分片拼成完整调用。"""
+    order = []
+    calls = {}
+
+    def slot(index):
+        if index not in calls:
+            order.append(index)
+            calls[index] = {"id": None, "name": None, "args": ""}
+        return calls[index]
+
+    for kind, value in events:
+        if kind == "tool_started":
+            index, call_id, name = value
+            call = slot(index)
+            if call_id:
+                call["id"] = call_id
+            if name:
+                call["name"] = name
+        elif kind == "tool_args":
+            index, fragment = value
+            slot(index)["args"] += fragment
+
+    result = []
+    for index in sorted(order):
+        call = calls[index]
+        if call["name"]:  # 没有名字的半截数据丢掉
+            result.append((index, call["id"], call["name"], call["args"]))
+    return result
 
 
 def run_stream(text, decoder):
-    """喂一整段 SSE 文本，返回 (拼出来的正文, 事件名序列, 最后一个 stop_reason)。"""
+    """喂一整段 SSE 文本，返回正文 / 事件名序列 / 结束原因 / 拼好的工具调用。"""
     reader = FrameReader()
     chunks = []
     names = []
     stop_reason = None
+    all_events = []
 
-    def handle(event):
+    def handle(events):
         nonlocal stop_reason
-        if event is None:
-            return
-        names.append(event[0])
-        if event[0] == "text":
-            chunks.append(event[1])
-        elif event[0] == "stop_reason":
-            stop_reason = event[1]
+        for event in events:
+            all_events.append(event)
+            names.append(event[0])
+            if event[0] == "text":
+                chunks.append(event[1])
+            elif event[0] == "stop_reason":
+                stop_reason = event[1]
 
     for line in text.split("\n"):
         handle(decoder(reader.consume(line)))
     handle(decoder(reader.flush()))
-    return "".join(chunks), names, stop_reason
+
+    return {
+        "text": "".join(chunks),
+        "names": names,
+        "stop": stop_reason,
+        "tool_calls": accumulate_tool_calls(all_events),
+    }
 
 
-# --------------------------------------------------------------------------
-# --------------------------------------------------------------------------
-# 镜像 7：AI 对话的纯逻辑（地址归一化 / 资料拼接）
-#
-# 说明：请求体的最终形状（tools / thinking / output_config / fallbacks）这里
-# 不镜像 —— 那部分由 Swift 单测直接断言构造出来的 JSON。这里只镜像「算法」
-# 这一类编译器查不出错的东西。
-# --------------------------------------------------------------------------
+def anysearch_result_text(payload):
+    """与 AnySearchAPI.resultText 对应（输入是已解析的 JSON-RPC 响应）。"""
+    error = payload.get("error") or {}
+    if error.get("message"):
+        raise ValueError("搜索失败：" + error["message"])
+    content = (payload.get("result") or {}).get("content") or []
+    text = "\n".join(
+        item.get("text") or "" for item in content if item.get("type") == "text"
+    ).strip()
+    if not text:
+        raise ValueError("搜索没有返回可用内容")
+    return text
 
 
 def normalize_base_url(raw):
@@ -622,46 +686,40 @@ def run():
         check("id" in report, "report.id 是必需字段（模型里非可选）")
 
     print("")
-    print("== 镜像 6：SSE 分帧与协议解码 ==")
-    expected_text = "这条说的是 Karpathy 对 LLM 认知鸿沟的看法。他估算全球约 60 亿人几乎没接触过大模型。"
+    print("== 镜像 6：SSE 分帧与协议解码（含工具调用）==")
+    anthropic = run_stream(fixture_text("anthropic-sse.txt"), anthropic_events)
+    check_eq(anthropic["text"], "我先查一下有没有后续。", "Anthropic 拼出的正文")
+    check_eq(anthropic["names"].count("thinking"), 1, "thinking_delta 只点亮状态，不进正文")
+    check_eq(anthropic["stop"], "tool_use", "Anthropic 结束原因：要跑工具")
+    check_eq(anthropic["tool_calls"],
+             [(2, "toolu_01A", "web_search", '{"query":"Karpathy LLM 认知鸿沟 后续"}')],
+             "Anthropic 把 input_json_delta 分片拼回完整参数")
+    check_eq(anthropic["names"][-1], "done", "Anthropic 以 message_stop 收尾")
 
-    anthropic_text, anthropic_events, anthropic_stop = run_stream(
-        fixture_text("anthropic-sse.txt"), anthropic_event
-    )
-    check_eq(anthropic_text, expected_text, "Anthropic 夹具拼出的正文")
-    check_eq(anthropic_events.count("thinking"), 1, "thinking_delta 只点亮状态，不进正文")
-    check("tool_started" in anthropic_events, "能认出服务端工具开始（web_search）")
-    check_eq(anthropic_stop, "end_turn", "Anthropic 结束原因")
-    check_eq(anthropic_events[-1], "done", "Anthropic 以 message_stop 收尾")
-    check("text" not in anthropic_events[0:1], "开头不是正文")
-
-    openai_text, openai_events, openai_stop = run_stream(
-        fixture_text("openai-sse.txt"), openai_event
-    )
-    check_eq(openai_text, expected_text, "OpenAI 夹具拼出的正文")
-    check_eq(openai_events.count("thinking"), 2, "reasoning_content 只点亮状态，不进正文")
-    check_eq(openai_stop, "stop", "OpenAI 结束原因")
-    check_eq(openai_events[-1], "done", "OpenAI 以 [DONE] 收尾")
+    openai = run_stream(fixture_text("openai-sse.txt"), openai_events)
+    check_eq(openai["text"], "我先查一下有没有后续。", "OpenAI 拼出的正文")
+    check_eq(openai["names"].count("thinking"), 1, "reasoning_content 只点亮状态")
+    check_eq(openai["stop"], "tool_calls", "OpenAI 结束原因：要跑工具")
+    check_eq(openai["tool_calls"],
+             [(0, "call_01A", "web_search", '{"query":"Karpathy LLM 认知鸿沟 后续"}')],
+             "OpenAI 的工具调用拼成与 Anthropic 相同的形状")
+    check_eq(openai["names"][-1], "done", "OpenAI 以 [DONE] 收尾")
 
     def drain(lines, decoder):
         reader = FrameReader()
         out = []
         for line in lines:
-            event = decoder(reader.consume(line))
-            if event:
-                out.append(event)
-        tail = decoder(reader.flush())
-        if tail:
-            out.append(tail)
+            out.extend(decoder(reader.consume(line)))
+        out.extend(decoder(reader.flush()))
         return out
 
     def a(*lines):
-        return drain(list(lines) + [""], anthropic_event)
+        return drain(list(lines) + [""], anthropic_events)
 
     def o(*lines):
-        return drain(list(lines) + [""], openai_event)
+        return drain(list(lines) + [""], openai_events)
 
-    check_eq(drain(['data: {"type":"message_stop"}\r', ""], anthropic_event),
+    check_eq(drain(['data: {"type":"message_stop"}\r', ""], anthropic_events),
              [("done", None)], "CRLF 行尾也能分帧")
     check_eq(a('data: {"type":"content_block_delta",',
                'data: "delta":{"type":"text_delta","text":"hi"}}'),
@@ -678,10 +736,24 @@ def run():
              [("error", "Overloaded")], "error 帧把接口原话带出来")
     check_eq(a('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"半句"}}'),
              [("text", "半句")], "没有 message_stop 的截断也要保住正文")
+    check_eq(a('data: {"type":"content_block_start","index":1,'
+               '"content_block":{"type":"tool_use","id":"t1","name":"read_url"}}'),
+             [("tool_started", (1, "t1", "read_url"))], "Anthropic 的 tool_use 块")
 
     for reason in ("refusal", "pause_turn", "max_tokens"):
         check_eq(a('data: {"type":"message_delta","delta":{"stop_reason":"%s"}}' % reason),
                  [("stop_reason", reason)], "结束原因 %s 要能带出来" % reason)
+
+    check_eq(accumulate_tool_calls([
+        ("tool_args", (0, '{"a":')),
+        ("tool_started", (0, "id1", "read_url")),
+        ("tool_args", (0, "1}")),
+    ]), [(0, "id1", "read_url", '{"a":1}')], "名字与参数乱序到也能拼对")
+    check_eq(accumulate_tool_calls([("tool_args", (0, "{}"))]), [],
+             "只有参数没有名字的半截数据丢掉")
+    check_eq(accumulate_tool_calls([("tool_started", (1, "b", "read_url")),
+                                    ("tool_started", (0, "a", "web_search"))]),
+             [(0, "a", "web_search", ""), (1, "b", "read_url", "")], "按 index 排序")
 
     check_eq(o("data: [DONE]"), [("done", None)], "[DONE] 收尾")
     check_eq(o('data: {"choices":[{"delta":{"content":null,"reasoning_content":"想了想"},'
@@ -694,7 +766,6 @@ def run():
     check_eq(o('data: {"error":{"message":"Invalid API key"}}'),
              [("error", "Invalid API key")], "OpenAI 侧错误也要带原话")
 
-    print("")
     print("== 镜像 7：AI 对话的地址归一化与资料拼接 ==")
     check_eq(normalize_base_url("https://api.anthropic.com/"), "https://api.anthropic.com",
              "去掉末尾斜杠")
@@ -739,6 +810,28 @@ def run():
              "没有 user 轮时不乱并")
 
     print("")
+    print("== 镜像 8：AnySearch 响应解析 ==")
+    anysearch = fixture_json("anysearch-search.json")
+    text = anysearch_result_text(anysearch)
+    check(text.startswith("## Search Results"), "取到的是排好的 Markdown，可直接给模型")
+    check("https://karpathy.bearblog.dev/year-in-review-2025/" in text,
+          "结果里带 URL（模型据此再调 read_url）")
+    check_eq(anysearch_result_text({"result": {"content": [{"type": "text", "text": "  x  "}]}}),
+             "x", "去掉首尾空白")
+
+    def raises(func, label, needle=""):
+        try:
+            func()
+        except ValueError as exc:
+            check(needle in str(exc), label)
+            return
+        check(False, label + "（应当抛错但没有）")
+
+    raises(lambda: anysearch_result_text({"error": {"message": "Invalid key"}}),
+           "JSON-RPC error 要抛错并带原话", "Invalid key")
+    raises(lambda: anysearch_result_text({"result": {"content": []}}),
+           "空结果要抛错，而不是回一个空串")
+
     print("镜像测试：通过 %d 项" % _passed)
     if _failed:
         print("")

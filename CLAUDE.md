@@ -61,15 +61,18 @@ RootView (TabView: 热点 | 收藏 | 设置)
 
 Each tab's root view owns its own `NavigationStack` (`TabView` outside, one `NavigationStack` per tab — never the reverse).
 
-**The AI chat layer** (feature: tap the bubble icon in `StoryDetailView`'s nav bar) is deliberately three separable pieces, and only the first is testable on this machine:
+**The AI chat layer** (feature: tap the bubble icon in `StoryDetailView`'s nav bar). The model can ask to call two tools — `web_search` and `read_url` — which the app executes against AnySearch and feeds back; it decides on its own whether to search. Almost all of the risky logic is pure and pinned by tests; the transport is the part nobody can exercise locally.
 
 ```
-AIChatView (sheet) ──> AIChatModel (@MainActor, owns the bytes.lines loop)
-                          ├── AppSettings.currentAIChatConfig() ──> AIChatSecretStore (Keychain)
-                          └── AIChatAPI ──> AIChatRequestBuilder (two protocols' bodies/headers)
-                                              └── AIChatConfig (protocol, base URL, model)
-SSEParser (pure) ── SSEFrameReader + Anthropic/OpenAI decoders
-AIChatNewsContext (pure) ── HotTopic + Story? + prefetchedDigest ──> the prompt's material
+AIChatView (sheet) ──> AIChatModel (@MainActor: owns the bytes.lines loop,
+                          │            runs the tool loop, clamps + feeds results back)
+                          ├── AppSettings.currentAIChatConfig() ──> AIChatSecretStore (Keychain, 3 accounts)
+                          ├── AIChatAPI ──> AIChatRequestBuilder (bodies/headers + tool round-trips)
+                          │                    └── AIChatConfig (protocol, base URL, model)
+                          └── AnySearchToolRunner ──> AnySearchAPI (JSON-RPC over /mcp)
+
+pure & tested:  SSEParser (frames + both decoders) · AIChatTool (call accumulator)
+                AIChatNewsContext (prompt material) · AIChatConfig/AIChatRequestBuilder
 ```
 
 ### Rules that will bite you if you don't know them
@@ -98,11 +101,13 @@ Symptom if you get this wrong: "detail page loses its report timeline on second 
 
 **9. The AI client must NOT reuse `AIHOTAPI`'s session, and must keep `Accept-Encoding: identity`.** `AIHOTAPI`'s session is 15s idle / 30s total, sized for one-shot JSON. A thinking, web-searching chat turn easily exceeds 30s, so reusing it kills every request in a way that looks like "the API is broken". `AIChatAPI` builds its own configuration (90s idle / 600s resource). The explicit `identity` encoding matters for a second reason: URLSession otherwise asks for gzip and decompresses transparently, and that buffering layer is the classic cause of "the SSE doesn't stream, it all arrives at the end".
 
-**10. Two protocols, two implementations — never one wrapped in the other.** Anthropic (`/v1/messages`) and OpenAI-compatible (`/chat/completions`) have genuinely different wire formats. The Anthropic side must follow Anthropic's own shapes; do **not** route Claude through an OpenAI-compatible shim. All protocol-specific risk (max_tokens, thinking/effort, tool declarations, headers) is deliberately concentrated in `AIChatRequestBuilder` as named constants with comments, because none of it can be exercised locally. `AIChatRequestBuilder.enableRefusalFallbacks` is the documented one-line escape hatch if the `fallbacks` + beta-header pair is ever rejected (see README §4/§7).
+**10. Two protocols, two implementations — never one wrapped in the other.** Anthropic (`/v1/messages`) and OpenAI-compatible (`/chat/completions`) have genuinely different wire formats, and **tool use is where they diverge most**: Anthropic wants `tool_use` / `tool_result` content blocks with matching ids, OpenAI-compatible wants `tool_calls` on the assistant message plus separate `role: "tool"` messages whose `function.arguments` is the **raw JSON string** (not an object). The Anthropic side must follow Anthropic's own shapes; do **not** route Claude through an OpenAI-compatible shim. All of it lives in `AIChatRequestBuilder` plus the two decoders, as named constants and small pure builders with comments, because none of it can be exercised locally. `AIChatRequestBuilder.enableRefusalFallbacks` remains the documented one-line escape hatch (see README §4/§7).
 
-**11. The news material goes in the FIRST USER MESSAGE, never only in `system`.** Anthropic's server-side `web_fetch` only fetches URLs **already present in the conversation**, so the original-article link has to be in a message or the "read the original" capability silently does nothing. Keeping it in the first user turn also keeps `system`/`tools` byte-stable and `messages` append-only, so the cached prefix survives the whole conversation. `ChatNewsContext` also uses **absolute** times only — `RelativeTime.relative` ("3 小时前") changes every turn and would break that prefix.
+**11. The news material goes in the FIRST USER MESSAGE, never only in `system`.** Two reasons: the model can only hand `read_url` a URL it has actually **seen**, so the original-article link has to be in a message (not just in `system`); and keeping it in the first user turn keeps `system`/`tools` byte-stable and `messages` append-only, so the cached prefix survives the whole conversation. `AIChatNewsContext` also uses **absolute** times only — `RelativeTime.relative` ("3 小时前") changes every turn and would break that prefix.
 
-**12. Multi-turn history is text-only, on purpose — keep it that way.** Only `{role, content: String}` pairs are sent back; thinking blocks and server-tool blocks are never reconstructed or echoed. This is not laziness: the preserved-thinking history check only validates `thinking` blocks you actually replay, so sending none puts the feature outside that check's blast radius entirely, and dropping server-tool blocks is valid because those results were produced server-side inside the same response (no dangling client `tool_use` to answer). `AIChatRequestBuilderTests.testAnthropicMessagesAreTextOnlyAndCarryContextInFirstUserTurn` pins the invariant — if it goes red, someone has re-entered that blast radius.
+**12. Tool blocks live inside ONE turn; history stays text-only.** A turn may contain several tool round-trips and those are echoed in full (Anthropic: `tool_use` + a matching `tool_result`; OpenAI: `tool_calls` + `role:"tool"`). But once the turn ends, only the assistant's **text** is kept and the next turn sends text-only history. This is load-bearing, not laziness: the preserved-thinking history check only validates `thinking` blocks you actually replay, so replaying none keeps the feature outside that check's blast radius — and the tool blocks we do echo are ones **we** assembled from the stream (`AIChatToolCallAccumulator`), so they cannot carry a mismatched signature. `testAnthropicHistoryIsTextOnlyAndCarriesContextInFirstUserTurn` pins the history shape; the two round-trip shapes have their own tests. A turn is capped at 5 tool rounds (`AIChatModel.maximumToolRounds`) — every round costs money.
+
+**13. AnySearch: JSON-RPC, optional auth, and one trap.** `POST https://api.anysearch.com/mcp`, method `tools/call`, tools `search` / `extract`. The response is **plain JSON, not SSE** — `result.content[0].text`, and that text is already model-ready Markdown (title + URL + summary), so it goes back as a `tool_result` unparsed. The `Authorization: Bearer` header is **optional** (anonymous works, lower rate limits) — but an *invalid* key returns 401/403 and does **not** silently fall back to anonymous, which is why the settings UI must say "clear the field to go back to anonymous". Results are clamped before going to the model (`AIChatToolResult.maximumCharacters`), because `extract` can return 50k characters from one page. `AnySearchTests` pins the parsing against a **real captured response** (`AIHOTTests/Fixtures/anysearch-search.json`).
 
 ### Project file conventions
 
@@ -122,7 +127,7 @@ Symptom if you get this wrong: "detail page loses its report timeline on second 
 - API model fields stay `Optional` liberally (`Source.name`, etc.) so one malformed item can't blank the whole list on decode.
 - `RegexUtil` exists so no regex library gets added; prefer it over pulling in a dependency.
 - There is no networking in tests, and no fixtures are ever written back — the whole test suite is pure/offline.
-- The mirror in `tools/logic_tests.py` now also covers the SSE frame reader and both protocol decoders (against `AIHOTTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read), plus the AI base-URL normalisation and the news-context builder. That is the only pre-CI signal for the trickiest new logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (`tools/logic_tests.py` can't build them), and the secret store (a fake backend).
+- The mirror in `tools/logic_tests.py` also covers the SSE frame reader and both protocol decoders (against `AIHOTTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read), the tool-call accumulator, the AnySearch response parsing (against `anysearch-search.json`), the AI base-URL normalisation, and the news-context builder. That is the only pre-CI signal for the trickiest logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (Python can't build them), the tool round-trip shapes, and the secret store (a fake backend).
 - Secrets never go in `@AppStorage`/`@AppStorage`-like paths: the API key lives in the Keychain (`AIChatSecretStore`), with a deliberate UserDefaults fallback **that the UI must disclose**. Two error codes to keep apart: `errSecItemNotFound (-25300)` means "nothing saved yet" (never a failure, and treating it as one writes an empty value on first launch), while something like `errSecMissingEntitlement (-34018)` is a real failure and triggers the fallback.
 
 ### Attribution constraints (product, not just legal)

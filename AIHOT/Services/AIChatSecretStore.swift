@@ -9,7 +9,7 @@ protocol AIChatSecretBackend {
     func delete(account: String)
 }
 
-/// API Key 的存放处。
+/// API Key 的存放处。三份：两条对话协议各一份，AnySearch 一份（那份可选）。
 ///
 /// 默认走 Keychain（`Security` 框架，**不需要 entitlement**）。但侧载签名
 /// （AltStore + 免费 Apple ID）在个别配置下会让 Keychain 直接返回
@@ -20,8 +20,6 @@ protocol AIChatSecretBackend {
 /// - `errSecItemNotFound (-25300)`：只是「还没存过」，**不是**失败。
 ///   判错的话每次首次启动都会往 UserDefaults 里写一份空的。
 /// - 其它（如 -34018）：才算失败，走兜底。
-///
-/// 两个协议各存各的，切协议不会串 Key。
 final class AIChatSecretStore {
 
     static let shared = AIChatSecretStore()
@@ -34,10 +32,47 @@ final class AIChatSecretStore {
         self.defaults = defaults
     }
 
-    // MARK: - 读写
+    // MARK: - 对话协议
 
     func key(for chatProtocol: AIChatProtocol) -> String {
-        let account = Self.account(for: chatProtocol)
+        read(account: Self.account(for: chatProtocol))
+    }
+
+    /// 返回 true 表示写进了 Keychain；false 表示降级到了 UserDefaults（界面要说明）。
+    @discardableResult
+    func setKey(_ value: String, for chatProtocol: AIChatProtocol) -> Bool {
+        write(value, account: Self.account(for: chatProtocol))
+    }
+
+    func isUsingFallback(for chatProtocol: AIChatProtocol) -> Bool {
+        usedFallback(account: Self.account(for: chatProtocol))
+    }
+
+    // MARK: - AnySearch（可选）
+
+    func anySearchKey() -> String {
+        read(account: Self.anySearchAccount)
+    }
+
+    @discardableResult
+    func setAnySearchKey(_ value: String) -> Bool {
+        write(value, account: Self.anySearchAccount)
+    }
+
+    func isUsingAnySearchFallback() -> Bool {
+        usedFallback(account: Self.anySearchAccount)
+    }
+
+    func clear() {
+        for chatProtocol in AIChatProtocol.allCases {
+            clearAccount(Self.account(for: chatProtocol))
+        }
+        clearAccount(Self.anySearchAccount)
+    }
+
+    // MARK: - 内部
+
+    private func read(account: String) -> String {
         if let stored = backend.read(account: account), !stored.isEmpty {
             return stored
         }
@@ -45,15 +80,12 @@ final class AIChatSecretStore {
         return defaults.string(forKey: Self.fallbackKey(account)) ?? ""
     }
 
-    /// 返回 true 表示写进了 Keychain；false 表示降级到了 UserDefaults（界面要说明）。
     @discardableResult
-    func setKey(_ value: String, for chatProtocol: AIChatProtocol) -> Bool {
-        let account = Self.account(for: chatProtocol)
+    private func write(_ value: String, account: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
-            backend.delete(account: account)
-            defaults.removeObject(forKey: Self.fallbackKey(account))
+            clearAccount(account)
             return true
         }
 
@@ -67,22 +99,17 @@ final class AIChatSecretStore {
         return false
     }
 
-    /// 这个协议的 Key 目前是不是存在兜底里 —— 是的话界面要说明。
-    func isUsingFallback(for chatProtocol: AIChatProtocol) -> Bool {
-        let account = Self.account(for: chatProtocol)
+    private func usedFallback(account: String) -> Bool {
         guard let stored = defaults.string(forKey: Self.fallbackKey(account)) else { return false }
         return !stored.isEmpty
     }
 
-    func clear() {
-        for chatProtocol in AIChatProtocol.allCases {
-            let account = Self.account(for: chatProtocol)
-            backend.delete(account: account)
-            defaults.removeObject(forKey: Self.fallbackKey(account))
-        }
+    private func clearAccount(_ account: String) {
+        backend.delete(account: account)
+        defaults.removeObject(forKey: Self.fallbackKey(account))
     }
 
-    // MARK: - 键
+    private static let anySearchAccount = "aihot.anysearch"
 
     private static func account(for chatProtocol: AIChatProtocol) -> String {
         switch chatProtocol {

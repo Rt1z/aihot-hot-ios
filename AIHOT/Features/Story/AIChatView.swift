@@ -78,9 +78,7 @@ struct AIChatView: View {
         guard !config.apiKey.isEmpty else {
             return "还没填 API Key，请到「设置 → AI 对话」填写。"
         }
-        return config.supportsWebTools
-            ? "它已经看过这条的摘要与报道时间线；需要时会自己去联网搜索或读原文。"
-            : "它已经看过这条的摘要与报道时间线。当前协议不支持联网搜索，也不会去读原文。"
+        return "它已经看过这条的摘要与报道时间线；需要时会自己去联网搜索，或去读原文。"
     }
 
     private var suggestionChips: some View {
