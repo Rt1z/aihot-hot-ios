@@ -26,10 +26,16 @@ targets:
       - path: AIHOT
         excludes:
           - "Info.plist"
-    info:
-      path: AIHOT/Info.plist
+    # 刻意不写 `info:`：XcodeGen 的 info.path 是「生成到该路径」，不是「以该文件
+    # 为基础」。写了它，XcodeGen 会用它那套默认键覆盖 AIHOT/Info.plist，于是
+    # CFBundleDisplayName（AI 热点榜）、UILaunchScreen、UIRequiresFullScreen、
+    # UISupportedInterfaceOrientations 和 $(CURRENT_PROJECT_VERSION) 占位符
+    # 全部丢失：桌面名退化成 AIHOT、缺启动屏配置（新机型会留黑边/缩放）、
+    # 能横屏，CFBundleVersion 被固化成 1，AltStore 也就永远认不出新版本。
+    # 直接指定 INFOPLIST_FILE，让仓库里那份 plist 真正生效。
     settings:
       base:
+        INFOPLIST_FILE: AIHOT/Info.plist
         PRODUCT_NAME: AIHOT
         PRODUCT_BUNDLE_IDENTIFIER: dev.local.aihot.hot
         MARKETING_VERSION: "1.0"
