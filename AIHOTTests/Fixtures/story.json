@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "story": {
+    "publicId": "03d4f9c6-4714-45e7-9db8-7af5df7e940a",
+    "title": "亚马逊洽谈约70亿美元收购Decart",
+    "status": "active",
+    "sourceCount": 1,
+    "reportCount": 1,
+    "firstReportAt": "2026-10-11T23:01:49.197Z",
+    "latestAt": "2026-10-11T23:01:49.197Z",
+    "latest": "消息称亚马逊洽谈以约 70 亿美元收购 AI 初创公司 Decart",
+    "digest": "据华尔街日报援引知情人士报道，亚马逊正就收购旧金山 AI 初创公司 Decart 展开谈判，潜在估值约 70 亿美元。\n\nDecart 研发帮助开发者在不同 AI 芯片间无缝切换的跨芯片适配软件，此前累计融资逾 4 亿美元，5 月融资时估值接近 40 亿美元。\n\n此前 Anthropic 曾洽谈以约 60 亿美元收购 Decart，并于 9 月放弃。",
+    "digestUpdatedAt": "2026-10-11T23:54:59.785Z",
+    "links": {
+      "aihot": "https://aihot.news/story/03d4f9c6-4714-45e7-9db8-7af5df7e940a"
+    },
+    "reports": [
+      {
+        "id": "j24j6hpw87bni62cbxx20mykp",
+        "title": "消息称亚马逊洽谈以约 70 亿美元收购 AI 初创公司 Decart",
+        "summary": "据华尔街日报援引知情人士报道，亚马逊正就收购旧金山初创公司 Decart 展开谈判，潜在估值约 70 亿美元。",
+        "source": { "name": "IT之家·人工智能", "firstParty": false },
+        "publishedAt": "2026-10-11T23:01:49.197Z",
+        "links": {
+          "aihot": "https://aihot.news/items/j24j6hpw87bni62cbxx20mykp",
+          "original": "https://www.ithome.com/1/011/720.htm"
+        }
+      }
+    ],
+    "storyline": [],
+    "related": []
+  }
+}

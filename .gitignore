@@ -1,0 +1,22 @@
+# --- Xcode / XcodeGen 生成物 ---
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.moved-aside
+*.xcuserstate
+
+# CI 现场生成的 App 图标（本地可用 python3 tools/make_appicon.py 生成）
+AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+
+# --- macOS / Windows ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- 编辑器 ---
+.vscode/
+.idea/

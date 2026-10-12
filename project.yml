@@ -1,0 +1,79 @@
+# XcodeGen 工程定义（纯文本，CI 与本机都用 `xcodegen generate` 生成 .xcodeproj）
+# 改 App 显示名 / 包名 / 版本号，只改这里。
+name: AIHOT
+
+options:
+  bundleIdPrefix: dev.local
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "16.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CLANG_ENABLE_MODULES: YES
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+
+targets:
+  AIHOT:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: AIHOT
+        excludes:
+          - "Info.plist"
+    info:
+      path: AIHOT/Info.plist
+    settings:
+      base:
+        PRODUCT_NAME: AIHOT
+        PRODUCT_BUNDLE_IDENTIFIER: dev.local.aihot.hot
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        # 测试 target 用 @testable import AIHOT 需要它；Release 不开。
+        # 未签名出包由 CI 在 xcodebuild 命令行上传 CODE_SIGNING_* 覆盖，不写进工程。
+        Debug:
+          ENABLE_TESTABILITY: YES
+
+  AIHOTTests:
+    # 标准配置：以 App 为宿主（TEST_HOST），测试代码用 @testable import AIHOT
+    # 直接测 App 模块本身，不再把源码重复编进测试包。
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: AIHOTTests
+    dependencies:
+      - target: AIHOT
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.local.aihot.hot.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: minimal
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/AIHOT.app/AIHOT"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  AIHOT:
+    build:
+      targets:
+        AIHOT: all
+        AIHOTTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - AIHOTTests
+    archive:
+      config: Release

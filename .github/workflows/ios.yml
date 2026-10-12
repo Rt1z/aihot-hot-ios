@@ -1,0 +1,220 @@
+name: iOS Unsigned IPA
+
+# 无 Mac 方案：GitHub 的 macOS runner 负责编译，产出可被 AltStore 重新签名的 IPA。
+# 两个 job 互相独立（不互相 needs），所以即使单测失败，你依然能拿到 IPA 先装机。
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          swift --version
+          python3 --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Preflight (JSON / plist / paths / python syntax)
+        run: python3 tools/preflight.py
+
+      - name: Generate app icon
+        run: |
+          python3 tools/make_appicon.py
+          # 图标没生成出来会被 actool 报成看不懂的错，这里先拦住
+          test -s AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Show generated targets
+        run: |
+          xcodegen --version
+          xcodebuild -list -project AIHOT.xcodeproj
+
+      - name: Logic mirror tests (python)
+        run: python3 tools/logic_tests.py
+
+      - name: Pick an available iPhone simulator
+        id: sim
+        run: |
+          # 用 -j 的 JSON 输出取 UDID，并按 isAvailable + 名字前缀过滤：
+          # 直接 awk 解析文本输出，在换了 Xcode 之后可能拿到垃圾 id。
+          # 末尾 || true：没有 iPhone 模拟器时 python 会抛 StopIteration，
+          # 那样会被 bash -e 直接终止，下面那段「打出来看看有哪些设备」的诊断就跑不到。
+          UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for v in d.values() for x in v if x.get("isAvailable") and x.get("name","").startswith("iPhone")))' || true)
+          if [ -z "$UDID" ]; then
+            echo "no available iPhone simulator found"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $UDID"
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          mkdir -p build
+          # 模拟器构建不需要证书，这里刻意不传 CODE_SIGNING_* 覆盖，
+          # 走 Xcode 对模拟器的默认签名方式（最标准的调用）。
+          xcodebuild test \
+            -project AIHOT.xcodeproj \
+            -scheme AIHOT \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build \
+            | tee build/test.log
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: build/test.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  ipa:
+    name: Build IPA
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          swift --version
+          python3 --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Preflight (JSON / plist / paths / python syntax)
+        run: python3 tools/preflight.py
+
+      - name: Generate app icon
+        run: |
+          python3 tools/make_appicon.py
+          # 图标没生成出来会被 actool 报成看不懂的错，这里先拦住
+          test -s AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Show generated targets
+        run: |
+          xcodegen --version
+          xcodebuild -list -project AIHOT.xcodeproj
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild clean build \
+            -project AIHOT.xcodeproj \
+            -scheme AIHOT \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            | tee build-unsigned.log
+
+      - name: Package unsigned IPA
+        run: |
+          APP="build/Build/Products/Release-iphoneos/AIHOT.app"
+          test -d "$APP" || { echo "app bundle not found at $APP"; ls -R build/Build/Products; exit 1; }
+          rm -rf Payload AIHOT-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry AIHOT-unsigned.ipa Payload
+          ls -lh AIHOT-unsigned.ipa
+
+      # 备用包：iphoneos 上的 ad-hoc 签名并不是官方支持的组合，
+      # 可能因为找不到证书而失败，所以整段允许失败——失败也不影响主包。
+      - name: Build (ad-hoc signed fallback)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project AIHOT.xcodeproj \
+            -scheme AIHOT \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build-adhoc \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            | tee build-adhoc.log
+
+      - name: Package ad-hoc IPA
+        continue-on-error: true
+        run: |
+          APP="build-adhoc/Build/Products/Release-iphoneos/AIHOT.app"
+          test -d "$APP" || { echo "app bundle not found at $APP"; exit 1; }
+          rm -rf Payload-adhoc AIHOT-adhoc.ipa
+          mkdir -p Payload-adhoc
+          cp -R "$APP" Payload-adhoc/
+          zip -qry AIHOT-adhoc.ipa Payload-adhoc
+          ls -lh AIHOT-adhoc.ipa
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### AIHOT 热点榜 构建结果"
+            echo ""
+            echo "- run number (CFBundleVersion): ${{ github.run_number }}"
+            echo "- 未签名包: AIHOT-unsigned.ipa（优先用这个）"
+            echo "- 备用包: AIHOT-adhoc.ipa（AltStore 报签名错误时改用它）"
+            echo ""
+            echo "侧载步骤见仓库 README 的「装机」一节。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIHOT-unsigned-ipa
+          path: AIHOT-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload ad-hoc IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIHOT-adhoc-ipa
+          path: AIHOT-adhoc.ipa
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build-unsigned.log
+            build-adhoc.log
+          if-no-files-found: ignore
+          retention-days: 14

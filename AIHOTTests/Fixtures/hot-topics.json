@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "count": 3,
+  "items": [
+    {
+      "rank": 1,
+      "id": "f572f90oc11zg6w7s815vz6m4",
+      "title": "Karpathy：LLM 能力认知鸿沟扩大为漏斗",
+      "source": { "name": "X：Andrej Karpathy (@karpathy)" },
+      "links": {
+        "aihot": "https://aihot.news/items/f572f90oc11zg6w7s815vz6m4",
+        "original": "https://x.com/karpathy/status/2109361546505966046",
+        "story": "https://aihot.virxact.com/story/9ce2c8e5-8fa1-4763-b493-ddec042860cc"
+      },
+      "sourceCount": 7,
+      "signalCount": 9,
+      "participantCount": 16,
+      "sourceNames": [
+        "X：邵猛 (@shao__meng)",
+        "X：Oran Ge (@oran_ge)",
+        "X：indigo (@indigox)",
+        "X：howie.serious (@howie_serious)",
+        "X：Ethan Mollick (@emollick)",
+        "X：马东锡 NLP (@dongxi_nlp)",
+        "X：Andrej Karpathy (@karpathy)"
+      ],
+      "latestAt": "2026-10-12T01:40:20.000Z"
+    },
+    {
+      "rank": 2,
+      "id": "pygydfau6gpr3a7v7ko4y49ww",
+      "title": "英伟达洽谈收购或追加投资Reflection AI",
+      "source": { "name": "X：Rohan Paul (@rohanpaul_ai)" },
+      "links": {
+        "aihot": "https://aihot.news/items/pygydfau6gpr3a7v7ko4y49ww",
+        "original": "https://x.com/rohanpaul_ai/status/2109025847835529580",
+        "story": "https://aihot.virxact.com/story/244f781e-a578-4493-804d-4b4cfa063ea3"
+      },
+      "sourceCount": 4,
+      "signalCount": 14,
+      "participantCount": 18,
+      "sourceNames": [
+        "X：马东锡 NLP (@dongxi_nlp)",
+        "IT之家·人工智能",
+        "X：Rohan Paul (@rohanpaul_ai)",
+        "Hacker News：AI 热帖"
+      ],
+      "latestAt": "2026-10-10T22:51:00.000Z"
+    },
+    {
+      "rank": 3,
+      "id": "ubbzc82ewyencdpy65uu3zwlo",
+      "title": "纳德拉：把前沿模型当内部风险管控",
+      "source": { "name": "The Decoder：AI News（RSS）" },
+      "links": {
+        "aihot": "https://aihot.news/items/ubbzc82ewyencdpy65uu3zwlo",
+        "original": "https://the-decoder.com/microsofts-nadella-bows-to-trumps-language-diktat-on-super-intelligence-and-uses-it-to-attack-openai-and-anthropic/",
+        "story": "https://aihot.virxact.com/story/ba1d5ac2-160e-4d9d-ae98-63405a9bb3f3"
+      },
+      "sourceCount": 6,
+      "signalCount": 10,
+      "participantCount": 16,
+      "sourceNames": [
+        "The Decoder：AI News（RSS）",
+        "IT之家·人工智能",
+        "X：Mustafa Suleyman（Microsoft AI CEO） (@mustafasuleyman)"
+      ],
+      "latestAt": "2026-10-11T09:08:35.000Z"
+    }
+  ]
+}
