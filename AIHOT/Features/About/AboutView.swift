@@ -4,12 +4,14 @@ import UIKit
 struct AboutView: View {
 
     @ObservedObject var store: HotTopicsStore
+    @ObservedObject var favorites: FavoritesStore
 
     @AppStorage(AppSettings.appearanceKey) private var appearance: String = AppSettings.Appearance.system.rawValue
     @AppStorage(AppSettings.enrichmentKey) private var enrichmentEnabled: Bool = true
 
     @State private var safariURL: URL?
     @State private var copiedDiagnostics = false
+    @State private var showClearFavorites = false
 
     private var versionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
@@ -18,6 +20,13 @@ struct AboutView: View {
     }
 
     var body: some View {
+        NavigationStack {
+            settingsForm
+        }
+        .tint(Theme.accent)
+    }
+
+    private var settingsForm: some View {
         Form {
             Section("外观") {
                 Picker("主题", selection: $appearance) {
@@ -61,7 +70,21 @@ struct AboutView: View {
                     Label("清除本地缓存", systemImage: "trash")
                 }
             } footer: {
-                Text("清除后下次启动需要联网重新拉取榜单快照。")
+                Text("清除后下次启动需要联网重新拉取榜单快照。收藏不受影响。")
+            }
+
+            Section {
+                LabeledContent("已收藏", value: "\(favorites.items.count) 条")
+                Button(role: .destructive) {
+                    showClearFavorites = true
+                } label: {
+                    Label("清空收藏", systemImage: "bookmark.slash")
+                }
+                .disabled(favorites.items.isEmpty)
+            } header: {
+                Text("收藏")
+            } footer: {
+                Text("收藏只保存在这台设备上，在详情页点右上角书签即可添加。清空后无法恢复。")
             }
 
             Section {
@@ -89,11 +112,16 @@ struct AboutView: View {
                     .foregroundColor(Theme.textSecondary)
             }
         }
-        .navigationTitle("关于")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("设置")
+        .navigationBarTitleDisplayMode(.large)
         .onChange(of: enrichmentEnabled) { isOn in
             guard isOn else { return }
             Task { await store.forceEnrichmentRefresh() }
+        }
+        // 收藏是用户数据，清空不可恢复，比「清除本地缓存」更该问一句
+        .confirmationDialog("确定清空全部收藏？", isPresented: $showClearFavorites, titleVisibility: .visible) {
+            Button("清空收藏", role: .destructive) { favorites.clear() }
+            Button("取消", role: .cancel) { }
         }
         .safariSheet(url: $safariURL)
     }

@@ -69,10 +69,15 @@ final class StoryDetailModel: ObservableObject {
 struct StoryDetailView: View {
 
     let item: HotTopic
+    @ObservedObject var favorites: FavoritesStore
     let prefetchedDigest: String?
 
     @StateObject private var model = StoryDetailModel()
     @State private var safariURL: URL?
+
+    private var isFavorited: Bool {
+        favorites.contains(item)
+    }
 
     private var publicId: String? {
         StoryID.publicId(fromStoryLink: item.links?.story)
@@ -145,6 +150,17 @@ struct StoryDetailView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("详情")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    favorites.toggle(item)
+                } label: {
+                    Image(systemName: isFavorited ? "bookmark.fill" : "bookmark")
+                        .foregroundColor(isFavorited ? Theme.accent : Theme.textSecondary)
+                }
+                .accessibilityLabel(isFavorited ? "取消收藏" : "收藏")
+            }
+        }
         .task { await model.load(publicId: publicId) }
         .safariSheet(url: $safariURL)
     }

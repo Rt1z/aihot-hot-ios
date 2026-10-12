@@ -5,6 +5,8 @@ enum AppSettings {
 
     static let appearanceKey = "aihot.appearance"
     static let enrichmentKey = "aihot.enrichment.enabled"
+    /// 收藏的落盘位置。用 UserDefaults 而不是 Caches：见 FavoritesStore 的注释。
+    static let favoritesKey = "aihot.favorites"
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system

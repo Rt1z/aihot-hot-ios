@@ -2,7 +2,11 @@ import SwiftUI
 
 struct HotListView: View {
 
-    @StateObject private var store = HotTopicsStore()
+    /// 由 RootView 注入：榜单数据要在收藏 tab 里也用得到（摘要、当前热度）。
+    @ObservedObject var store: HotTopicsStore
+    /// 只是往下传给详情页，本页自己不读它，所以是 let 而不是 @ObservedObject。
+    let favorites: FavoritesStore
+
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var safariURL: URL?
@@ -29,18 +33,14 @@ struct HotListView: View {
             .refreshable { await store.refresh() }
             .navigationTitle("AI 热点榜")
             .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink {
-                        AboutView(store: store)
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .foregroundColor(Theme.textSecondary)
-                    }
-                }
-            }
+            // 这里原来有个右上角 ⓘ 通往「关于」，现在「关于」是底部的设置 tab，
+            // 少了这个入口，也就少了两个通往同一页的路径。
             .navigationDestination(for: HotTopic.self) { item in
-                StoryDetailView(item: item, prefetchedDigest: store.digest(for: item))
+                StoryDetailView(
+                    item: item,
+                    favorites: favorites,
+                    prefetchedDigest: store.digest(for: item)
+                )
             }
         }
         .tint(Theme.accent)

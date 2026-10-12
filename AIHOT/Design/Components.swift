@@ -291,12 +291,15 @@ struct SkeletonCard: View {
 struct EmptyStateView: View {
     let title: String
     let message: String
-    var actionTitle: String?
-    var action: (() -> Void)?
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+    /// 放在最后：memberwise init 的参数顺序就是声明顺序，加在末尾
+    /// 才不会动到已有的调用点。
+    var systemImage: String = "chart.bar.xaxis"
 
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: "chart.bar.xaxis")
+            Image(systemName: systemImage)
                 .font(.system(size: 28, weight: .regular))
                 .foregroundColor(Theme.textTertiary)
             Text(title)
