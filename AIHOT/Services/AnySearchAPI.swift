@@ -11,11 +11,25 @@ protocol AnySearchCalling {
 ///
 /// - `POST https://api.anysearch.com/mcp`，**JSON-RPC 2.0**，method 固定 `"tools/call"`；
 /// - 鉴权可选：带 `Authorization: Bearer <key>` 走该 key 的付费额度，不带就是匿名
-///   （限速更低）。注意**带了无效 key 不会静默退回匿名**，会直接 401/403；
+///   （限速更低，实测可用）。**带了无效 key 不会静默退回匿名**；
 /// - 工具名：`search`（参数 query / max_results / domain / sub_domain / sub_domain_params）
 ///   与 `extract`（参数 url，HTML 整页转 Markdown，单页上限 5 万字）；
-/// - 返回是**普通 JSON、不是 SSE**：`result.content[0].text`。而那段 text 本身就是
-///   排好的 Markdown（标题 + URL + 摘要），可以直接当工具结果交给模型，不必再解析。
+/// - 返回是**普通 JSON、不是 SSE**：`result.content[0].text`。
+///
+/// 两种失败长得**完全不一样**，只看顶层 `error` 会漏掉前一种（曾经就是这样漏的）：
+///
+/// 1. **无效 key / 工具自己失败**：HTTP 仍是 **200**，顶层没有 `error`，而是
+///    `result.isError == true`，原因写在 `result.content[0].text` 里。实测无效 key
+///    回来的是 `{"result":{"content":[{"text":"invalid_api_key\nInvalid API key."}],
+///    "isError":true}}`。**必须查 `isError`**，否则这段错误文案会被当成搜索结果喂给
+///    模型，用户只会看到模型支支吾吾说搜不到。
+/// 2. 协议级错误（参数不合规等）：顶层 `error.message`。另外 401/403 是兜底路径，
+///    实测无效 key 走的是上面第 1 种。
+///
+/// 另外注意 `search` 与 `extract` 的 text 内容**不是同一种东西**：`search` 给的是
+/// 排好的 Markdown（标题 + URL + 摘要），可以直接交给模型；`extract` 给的是一层
+/// **JSON 文档字符串**（`{"url":…,"title":…,"content":"…"}`，正文里的换行是转义的），
+/// 目前原样回传（模型读得懂）。要优化就在 `AnySearchToolRunner` 里拆一层。
 final class AnySearchAPI: AnySearchCalling, @unchecked Sendable {
 
     static let shared = AnySearchAPI()
@@ -88,7 +102,8 @@ final class AnySearchAPI: AnySearchCalling, @unchecked Sendable {
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             let detail = AIChatAPI.problemMessage(from: data)
             if http.statusCode == 401 || http.statusCode == 403 {
-                // 契约里写明了：带了无效 key 不会静默退回匿名
+                // 兜底路径：实测**无效 key 走的是 200 + result.isError**（见 resultText），
+                // 但真要是哪天改成按 HTTP 状态码回，这句提示已经在这儿了
                 throw APIError(
                     kind: .server(http.statusCode),
                     message: "AnySearch 的 Key 无效或已停用（\(http.statusCode)）。可以到「设置 → AI 对话」清空它改用匿名，或换一个 Key"
@@ -105,7 +120,7 @@ final class AnySearchAPI: AnySearchCalling, @unchecked Sendable {
 
     // MARK: - 响应解析（纯函数，便于单测）
 
-    /// 从 JSON-RPC 响应里取出工具结果文本。
+    /// 从 JSON-RPC 响应里取出工具结果文本。失败一律抛 `APIError`。
     static func resultText(from data: Data) throws -> String {
         struct Envelope: Decodable {
             struct Result: Decodable {
@@ -114,6 +129,9 @@ final class AnySearchAPI: AnySearchCalling, @unchecked Sendable {
                     let text: String?
                 }
                 let content: [Item]?
+                /// MCP 规范用它表示「工具执行失败」。**失败时 HTTP 仍可能是 200**，
+                /// 所以这是唯一能区分「结果」和「错误文案」的字段。
+                let isError: Bool?
             }
             struct Failure: Decodable {
                 let message: String?
@@ -135,6 +153,22 @@ final class AnySearchAPI: AnySearchCalling, @unchecked Sendable {
             .compactMap { $0.text }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 无效 key 就是走这条路回来的：HTTP 200 + isError，原因在 content 里。
+        // 少了这一查，`invalid_api_key / Invalid API key.` 会被当成搜索结果交给模型。
+        if envelope.result?.isError == true {
+            // 实测的错误文案里带这个机器码；认出来就给一句能照做的提示
+            if text.contains("invalid_api_key") {
+                throw APIError(
+                    kind: .server(-1),
+                    message: "AnySearch 的 Key 无效或已停用。可以到「设置 → AI 对话」清空它改用匿名，或换一个 Key"
+                )
+            }
+            throw APIError(
+                kind: .server(-1),
+                message: text.isEmpty ? "搜索服务拒绝了这次调用" : "搜索失败：\(text)"
+            )
+        }
 
         guard !text.isEmpty else {
             throw APIError(kind: .decoding("anysearch"), message: "搜索没有返回可用内容")

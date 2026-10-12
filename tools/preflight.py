@@ -29,6 +29,7 @@ JSON_FILES = [
     "AIHOTTests/Fixtures/hot-topics.json",
     "AIHOTTests/Fixtures/story.json",
     "AIHOTTests/Fixtures/anysearch-search.json",
+    "AIHOTTests/Fixtures/anysearch-error.json",
     "AIHOTTests/Fixtures/story-timeline.json",
 ]
 

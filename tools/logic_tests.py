@@ -452,14 +452,25 @@ def run_stream(text, decoder):
 
 
 def anysearch_result_text(payload):
-    """与 AnySearchAPI.resultText 对应（输入是已解析的 JSON-RPC 响应）。"""
+    """与 AnySearchAPI.resultText 对应（输入是已解析的 JSON-RPC 响应）。
+
+    失败有**两种**形状，只看顶层 error 会漏掉第一种：
+      - 无效 key / 工具自己失败：HTTP 200，顶层无 error，而是 result.isError == True，
+        原因在 result.content[0].text 里（实测无效 key 就是这条）；
+      - 协议级错误：顶层 error.message。
+    """
     error = payload.get("error") or {}
     if error.get("message"):
         raise ValueError("搜索失败：" + error["message"])
-    content = (payload.get("result") or {}).get("content") or []
+    result = payload.get("result") or {}
+    content = result.get("content") or []
     text = "\n".join(
         item.get("text") or "" for item in content if item.get("type") == "text"
     ).strip()
+    if result.get("isError") is True:
+        if "invalid_api_key" in text:
+            raise ValueError("AnySearch 的 Key 无效或已停用。可以到「设置 → AI 对话」清空它改用匿名，或换一个 Key")
+        raise ValueError("搜索服务拒绝了这次调用" if not text else "搜索失败：" + text)
     if not text:
         raise ValueError("搜索没有返回可用内容")
     return text
@@ -953,6 +964,24 @@ def run():
            "JSON-RPC error 要抛错并带原话", "Invalid key")
     raises(lambda: anysearch_result_text({"result": {"content": []}}),
            "空结果要抛错，而不是回一个空串")
+
+    # 无效 key 的真实形状：HTTP 200 + result.isError，顶层没有 error。
+    # 曾经漏查 isError，于是这段错误文案被当成搜索结果喂给了模型。
+    bad_key = fixture_json("anysearch-error.json")
+    check_eq((bad_key.get("result") or {}).get("isError"), True,
+             "夹具钉住的无效 key 响应：HTTP 200，靠 result.isError 表示失败")
+    check("error" not in bad_key, "这个形状里顶层没有 error —— 只查 error 的写法会漏掉它")
+    raises(lambda: anysearch_result_text(bad_key),
+           "无效 key 要抛错，不能把错误文案当搜索结果", "Key 无效")
+    raises(lambda: anysearch_result_text(
+        {"result": {"content": [{"type": "text", "text": "boom"}], "isError": True}}),
+        "其它 isError 也要抛错并带原话", "boom")
+    raises(lambda: anysearch_result_text(
+        {"result": {"content": [], "isError": True}}),
+        "isError 而且没给原因时也要抛错", "拒绝了")
+    check_eq(anysearch_result_text(
+        {"result": {"content": [{"type": "text", "text": "ok"}], "isError": False}}),
+        "ok", "isError 明确为 false 时照常返回")
 
     print("")
     print("== 镜像 9：报道节奏（分桶 / 峰值 / 轴刻度）==")

@@ -1,0 +1,13 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "invalid_api_key\nInvalid API key."
+      }
+    ],
+    "isError": true
+  }
+}

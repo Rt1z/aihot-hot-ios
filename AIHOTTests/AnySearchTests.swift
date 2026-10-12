@@ -29,6 +29,38 @@ final class AnySearchTests: XCTestCase {
         XCTAssertTrue(text.contains("**URL**"))
     }
 
+    /// **无效 key 的真实形状**：HTTP 200、顶层没有 error，失败靠 `result.isError`
+    /// 表达、原因写在 `content[0].text` 里。这份夹具是真跑出来的字节。
+    ///
+    /// 这条以前是用手写的 `{"error":{"message":"Invalid API key"}}` 测的 —— 那个形状
+    /// 服务端根本不发，于是「只查顶层 error」的写法一直是绿的，而线上无效 key 时
+    /// `invalid_api_key / Invalid API key.` 会被当成搜索结果交给模型。
+    func testBadKeyComesBackAsHTTP200WithIsErrorAndMustNotBecomeAResult() throws {
+        let data = try Fixture.data("anysearch-error", ext: "json")
+
+        XCTAssertThrowsError(try AnySearchAPI.resultText(from: data), "错误文案绝不能当搜索结果返回") { error in
+            let message = (error as? APIError)?.message ?? ""
+            XCTAssertTrue(message.contains("Key 无效"), "要给出能照做的提示，实际是：\(message)")
+        }
+    }
+
+    func testIsErrorWithoutTheInvalidKeyCodeStillThrowsWithTheOriginalText() {
+        let data = Data(#"{"result":{"content":[{"type":"text","text":"boom"}],"isError":true}}"#.utf8)
+        XCTAssertThrowsError(try AnySearchAPI.resultText(from: data)) { error in
+            XCTAssertTrue((error as? APIError)?.message.contains("boom") == true)
+        }
+    }
+
+    func testIsErrorWithNoTextAtAllStillThrows() {
+        let data = Data(#"{"result":{"content":[],"isError":true}}"#.utf8)
+        XCTAssertThrowsError(try AnySearchAPI.resultText(from: data))
+    }
+
+    func testIsErrorFalseIsJustANormalResult() throws {
+        let data = Data(#"{"result":{"content":[{"type":"text","text":"ok"}],"isError":false}}"#.utf8)
+        XCTAssertEqual(try AnySearchAPI.resultText(from: data), "ok")
+    }
+
     func testJSONRPCErrorSurfacesTheOriginalMessage() {
         let data = Data(#"{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid API key"}}"#.utf8)
         XCTAssertThrowsError(try AnySearchAPI.resultText(from: data)) { error in
