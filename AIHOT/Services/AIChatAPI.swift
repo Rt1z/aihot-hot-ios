@@ -144,7 +144,7 @@ final class AIChatAPI: @unchecked Sendable {
                 return .failure(Self.apiError(from: http, body: data))
             }
             return .success(Self.describeModels(data: data, wanted: config.model))
-        } catch let error as CancellationError {
+        } catch is CancellationError {
             return .failure(APIError(kind: .transport("cancelled"), message: "已取消"))
         } catch let error as URLError {
             return .failure(Self.apiError(from: error))

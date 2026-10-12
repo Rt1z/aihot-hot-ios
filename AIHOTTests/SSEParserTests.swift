@@ -42,12 +42,16 @@ final class SSEParserTests: XCTestCase {
             }
         }
 
-        for line in lines {
-            let frame = reader.consume(line: line)
+        /// 解码器吃的是**非可选**的帧，所以要先把「还没凑成一帧」的情况挡掉。
+        func decode(_ frame: SSEFrame?) {
+            guard let frame = frame else { return }
             handle(anthropic ? AnthropicSSEDecoder.decode(frame) : OpenAISSSEDecoder.decode(frame))
         }
-        let tail = reader.flush()
-        handle(anthropic ? AnthropicSSEDecoder.decode(tail) : OpenAISSSEDecoder.decode(tail))
+
+        for line in lines {
+            decode(reader.consume(line: line))
+        }
+        decode(reader.flush())
         return result
     }
 
