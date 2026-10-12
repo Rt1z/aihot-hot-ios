@@ -12,6 +12,9 @@ build/
 # CI 现场生成的 App 图标（本地可用 python3 tools/make_appicon.py 生成）
 AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
 
+# 侧载用的产物目录：gh run download 下来的 ipa，以及解压出来的 Payload
+AIHOT-unsigned/
+
 # --- macOS / Windows ---
 .DS_Store
 Thumbs.db
