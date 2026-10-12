@@ -64,6 +64,12 @@ enum HTMLTextExtractor {
         // 注释
         text = RegexUtil.replace("<!--.*?-->", in: text, with: "\n", options: [.dotMatchesLineSeparators])
 
+        // 源码里的换行与缩进只是排版，不是语义换行：真实页面里
+        // `<span>爆</span>` 和 `<span>↑ 629%</span>` 之间是有换行的，
+        // 若照搬成断行，徽章就被拆到两行，涨跌会整块丢失。
+        // 所以先整体折叠成单个空格，之后只由块级标签决定在哪里断行。
+        text = RegexUtil.replace("\\s+", in: text, with: " ", options: [])
+
         // 块级标签的结束位置换成换行，保留「一行一段」的结构
         text = RegexUtil.replace(
             "<(br|/p|/div|/li|/ul|/ol|/dl|/dd|/h[1-6]|/section|/article|/header|/footer|/tr|/td|/th|/table|/main|/nav|/aside|/head|/title|/body|/html|/figure|/figcaption|/blockquote|/pre|/form|/time)[^>]*>",

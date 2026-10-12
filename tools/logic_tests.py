@@ -102,6 +102,11 @@ def plain_text(html):
     for tag in ("script", "style", "noscript", "svg", "template"):
         text = strip_element(text, tag)
     text = re.sub(r"<!--.*?-->", "\n", text, flags=re.DOTALL)
+    # 与 Swift 一致：源码里的换行/缩进只是排版，不是语义换行，
+    # 先整体折叠成单个空格，之后只由块级标签决定断行。
+    # 少了这一步，<span>爆</span> 与 <span>↑ 629%</span> 之间的换行
+    # 会把徽章拆到两行，涨跌整块丢失。
+    text = re.sub(r"\s+", " ", text)
     text = re.sub(r"<(%s)[^>]*>" % BLOCK_TAG_CLOSERS, "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]*>", " ", text)
     text = decode_entities(text)
@@ -292,7 +297,7 @@ def run():
         # 真实页面的正文是一整段几百字，热度数字排在正文之后。
         # 夹具里 NO.01 的正文已按真实长度写；这里再补一个显式的长文用例。
         long_digest = "正文。" * 300
-        realistic = "NO.01 爆 ↑ 20%\n标题\n%s\n+10 7 个来源 · 16 位参与者\n160\n热度指数" % long_digest
+        realistic = "NO.01 爆 ↑ 20%%\n标题\n%s\n+10 7 个来源 · 16 位参与者\n160\n热度指数" % long_digest
         check_eq(parse_page(realistic)["ranks"][1]["heat"], 160, "长正文之后仍能取到热度指数")
 
     print("== 镜像 1/2：HTML → 纯文本 → 同样的解析 ==")

@@ -61,8 +61,13 @@ PROJECT_PATTERNS = [
 WORKFLOW_PATTERNS = [
     re.compile(r"python3\s+(tools/[A-Za-z0-9_./-]+)"),
     re.compile(r"(AIHOT/Info\.plist)"),
-    re.compile(r"(AIHOT/Assets\.xcassets/AppIcon\.appiconset/AppIcon-1024\.png)"),
 ]
+
+# 构建期才生成的文件（不进仓库，所以不能拿它去 stat）。
+# 这类路径不做「存在性」检查，改由 check_icon_wiring() 比较字符串两侧是否一致。
+GENERATED_PATHS = {
+    "AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+}
 
 problems = []
 checked = []
@@ -145,8 +150,10 @@ def referenced_paths():
 
 def check_referenced_paths():
     for relative in sorted(referenced_paths()):
-        # xcodegen 生成物与 CI 产物不在仓库里，跳过
+        # xcodegen 生成物、CI 产物，以及构建期才生成的文件
         if relative.startswith(("build", "Payload", "AIHOT.xcodeproj")):
+            continue
+        if relative in GENERATED_PATHS:
             continue
         full = os.path.join(ROOT, relative)
         if os.path.exists(full):
@@ -155,12 +162,43 @@ def check_referenced_paths():
             fail("project.yml / workflow 引用了不存在的路径：%s" % relative)
 
 
+def check_icon_wiring():
+    """图标是构建期生成的：生成脚本的默认输出路径，必须和 workflow 里那句
+    `test -s` 检查的路径一致，否则会以看不懂的 actool 报错收场。"""
+    output = "AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
+    name = "AppIcon-1024.png"
+
+    script_path = os.path.join(ROOT, "tools", "make_appicon.py")
+    workflow_path = os.path.join(ROOT, ".github", "workflows", "ios.yml")
+
+    if os.path.isfile(script_path):
+        with open(script_path, "r", encoding="utf-8") as handle:
+            script = handle.read()
+        if name not in script:
+            fail("tools/make_appicon.py 里找不到生成 %s 的痕迹" % name)
+        else:
+            checked.append("icon generator")
+    else:
+        fail("缺少文件：tools/make_appicon.py")
+
+    if os.path.isfile(workflow_path):
+        with open(workflow_path, "r", encoding="utf-8") as handle:
+            workflow = handle.read()
+        if output not in workflow:
+            fail("workflow 里没有对 %s 的存在性检查（图标没生成时只会得到 actool 的报错）" % output)
+        else:
+            checked.append("icon guard")
+    else:
+        fail("缺少文件：.github/workflows/ios.yml")
+
+
 def main():
     check_plist("AIHOT/Info.plist")
     for relative in JSON_FILES:
         check_json(relative)
     for relative in PYTHON_FILES:
         check_python(relative)
+    check_icon_wiring()
     check_referenced_paths()
 
     print("preflight: 检查了 %d 项" % len(checked))
