@@ -260,7 +260,244 @@ def absolute_short(when):
 
 
 # --------------------------------------------------------------------------
+# 镜像 6：SSE 分帧 + 两家协议的解码
+# --------------------------------------------------------------------------
+
+
+def split_field(line):
+    if ":" not in line:
+        return line, ""
+    field, _, value = line.partition(":")
+    if value.startswith(" "):
+        value = value[1:]  # 规范：最多剥掉一个前导空格
+    return field, value
+
+
+class FrameReader:
+    """与 Swift 的 SSEFrameReader 一一对应。"""
+
+    def __init__(self):
+        self.event = None
+        self.data = []
+
+    def consume(self, raw_line):
+        line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
+        if line == "":
+            return self.flush()
+        if line.startswith(":"):
+            return None  # 注释/心跳
+        field, value = split_field(line)
+        if field == "event":
+            self.event = value
+        elif field == "data":
+            self.data.append(value)
+        return None
+
+    def flush(self):
+        if not self.data and self.event is None:
+            return None
+        frame = {"event": self.event, "data": "\n".join(self.data)}
+        self.event = None
+        self.data = []
+        return frame
+
+
+def anthropic_event(frame):
+    if frame is None:
+        return None
+    try:
+        payload = json.loads(frame["data"])
+    except ValueError:
+        return None
+
+    kind = payload.get("type")
+    if kind == "content_block_delta":
+        delta = payload.get("delta") or {}
+        if delta.get("type") == "text_delta":
+            text = delta.get("text") or ""
+            return ("text", text) if text else None
+        if delta.get("type") == "thinking_delta":
+            return ("thinking", None)
+        return None  # signature_delta / input_json_delta / citations_delta
+    if kind == "content_block_start":
+        block = payload.get("content_block") or {}
+        if block.get("type") == "server_tool_use":
+            return ("tool_started", block.get("name") or "")
+        return None
+    if kind == "message_delta":
+        reason = (payload.get("delta") or {}).get("stop_reason")
+        return ("stop_reason", reason) if reason else None
+    if kind == "message_stop":
+        return ("done", None)
+    if kind == "error":
+        failure = payload.get("error") or {}
+        return ("error", failure.get("message") or "流式响应里出现了一个错误")
+    return None
+
+
+def openai_event(frame):
+    if frame is None:
+        return None
+    data = frame["data"]
+    if data == "[DONE]":
+        return ("done", None)
+    try:
+        payload = json.loads(data)
+    except ValueError:
+        return None
+
+    failure = payload.get("error") or {}
+    if failure.get("message"):
+        return ("error", failure["message"])
+
+    choices = payload.get("choices") or []
+    if not choices:
+        return None
+    choice = choices[0]
+
+    finish = choice.get("finish_reason")
+    if finish:
+        return ("stop_reason", finish)
+
+    delta = choice.get("delta") or {}
+    content = delta.get("content")
+    if content:
+        return ("text", content)
+    if delta.get("reasoning_content"):
+        return ("thinking", None)
+    return None
+
+
+def run_stream(text, decoder):
+    """喂一整段 SSE 文本，返回 (拼出来的正文, 事件名序列, 最后一个 stop_reason)。"""
+    reader = FrameReader()
+    chunks = []
+    names = []
+    stop_reason = None
+
+    def handle(event):
+        nonlocal stop_reason
+        if event is None:
+            return
+        names.append(event[0])
+        if event[0] == "text":
+            chunks.append(event[1])
+        elif event[0] == "stop_reason":
+            stop_reason = event[1]
+
+    for line in text.split("\n"):
+        handle(decoder(reader.consume(line)))
+    handle(decoder(reader.flush()))
+    return "".join(chunks), names, stop_reason
+
+
+# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# 镜像 7：AI 对话的纯逻辑（地址归一化 / 资料拼接）
+#
+# 说明：请求体的最终形状（tools / thinking / output_config / fallbacks）这里
+# 不镜像 —— 那部分由 Swift 单测直接断言构造出来的 JSON。这里只镜像「算法」
+# 这一类编译器查不出错的东西。
+# --------------------------------------------------------------------------
+
+
+def normalize_base_url(raw):
+    """与 AIChatConfig.normalizedBaseURL 对应：只去掉末尾斜杠，绝不自动补 /v1。"""
+    text = raw.strip()
+    while text.endswith("/"):
+        text = text[:-1]
+    if not text:
+        return None
+    parts = urlsplit(text)
+    if parts.scheme not in ("http", "https"):
+        return None
+    if not parts.netloc:
+        return None
+    return text
+
+
+def contextual_turns(turns, news_context):
+    """与 AIChatRequestBuilder.contextualTurns 对应：资料并进第一条 user 消息。"""
+    for index, (role, text) in enumerate(turns):
+        if role == "user":
+            result = list(turns)
+            result[index] = (role, news_context + "\n\n---\n\n" + text)
+            return result
+    return list(turns)
+
+
+def ai_news_context(item, story, prefetched_digest=None, limit=6000, max_reports=8):
+    """与 AIChatNewsContext.make 对应。只断言关键性质，不追求逐字节一致。"""
+    story = story or {}
+    lines = ["【这条热点】"]
+    lines.append("标题：" + (story.get("title") or item.get("title") or ""))
+    lines.append("当前排名：第 %d 位" % item["rank"])
+
+    source = (item.get("source") or {}).get("name")
+    if source:
+        lines.append("来源：" + source)
+
+    counts = []
+    if item.get("sourceCount"):
+        counts.append("%d 个来源" % item["sourceCount"])
+    if item.get("participantCount"):
+        counts.append("%d 位参与者" % item["participantCount"])
+    if counts:
+        lines.append("规模：" + " · ".join(counts))
+
+    if item.get("latestAt"):
+        lines.append("最近报道：" + absolute_short(parse_iso(item["latestAt"])) + "（北京时间）")
+    if story.get("firstReportAt"):
+        lines.append("首次报道：" + absolute_short(parse_iso(story["firstReportAt"])) + "（北京时间）")
+
+    links = item.get("links") or {}
+    story_links = story.get("links") or {}
+    original = links.get("original") or story_links.get("original")
+    if original:
+        lines.append("原文链接：" + original)
+    aihot_link = links.get("aihot") or story_links.get("aihot")
+    if aihot_link:
+        lines.append("站内页：" + aihot_link)
+
+    digest = story.get("digest") or prefetched_digest
+    if digest:
+        lines.append("")
+        lines.append("【AI 摘要】")
+        for paragraph in digest.split("\n"):
+            if paragraph.strip():
+                lines.append(paragraph.strip())
+
+    reports = story.get("reports") or []
+    if reports:
+        lines.append("")
+        lines.append("【报道时间线】")
+        for report in reports[:max_reports]:
+            parts = []
+            if report.get("publishedAt"):
+                parts.append(absolute_short(parse_iso(report["publishedAt"])))
+            name = (report.get("source") or {}).get("name")
+            if name:
+                parts.append(name)
+            if report.get("title"):
+                parts.append(report["title"])
+            if parts:
+                lines.append("- " + " · ".join(parts))
+            if report.get("summary"):
+                lines.append("  " + report["summary"])
+
+    lines.append("")
+    lines.append("以上是 App 里已有的资料。请据此回答我下面的问题。")
+
+    text = "\n".join(lines)
+    if len(text) > limit:
+        text = text[:limit] + "\n…（资料过长，已截断）"
+    return text
+
+
+# --------------------------------------------------------------------------
 # 断言（全部以夹具为准）
+# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
 
 
@@ -383,6 +620,123 @@ def run():
     check_eq(story["status"], "active", "story 状态")
     for report in story["reports"]:
         check("id" in report, "report.id 是必需字段（模型里非可选）")
+
+    print("")
+    print("== 镜像 6：SSE 分帧与协议解码 ==")
+    expected_text = "这条说的是 Karpathy 对 LLM 认知鸿沟的看法。他估算全球约 60 亿人几乎没接触过大模型。"
+
+    anthropic_text, anthropic_events, anthropic_stop = run_stream(
+        fixture_text("anthropic-sse.txt"), anthropic_event
+    )
+    check_eq(anthropic_text, expected_text, "Anthropic 夹具拼出的正文")
+    check_eq(anthropic_events.count("thinking"), 1, "thinking_delta 只点亮状态，不进正文")
+    check("tool_started" in anthropic_events, "能认出服务端工具开始（web_search）")
+    check_eq(anthropic_stop, "end_turn", "Anthropic 结束原因")
+    check_eq(anthropic_events[-1], "done", "Anthropic 以 message_stop 收尾")
+    check("text" not in anthropic_events[0:1], "开头不是正文")
+
+    openai_text, openai_events, openai_stop = run_stream(
+        fixture_text("openai-sse.txt"), openai_event
+    )
+    check_eq(openai_text, expected_text, "OpenAI 夹具拼出的正文")
+    check_eq(openai_events.count("thinking"), 2, "reasoning_content 只点亮状态，不进正文")
+    check_eq(openai_stop, "stop", "OpenAI 结束原因")
+    check_eq(openai_events[-1], "done", "OpenAI 以 [DONE] 收尾")
+
+    def drain(lines, decoder):
+        reader = FrameReader()
+        out = []
+        for line in lines:
+            event = decoder(reader.consume(line))
+            if event:
+                out.append(event)
+        tail = decoder(reader.flush())
+        if tail:
+            out.append(tail)
+        return out
+
+    def a(*lines):
+        return drain(list(lines) + [""], anthropic_event)
+
+    def o(*lines):
+        return drain(list(lines) + [""], openai_event)
+
+    check_eq(drain(['data: {"type":"message_stop"}\r', ""], anthropic_event),
+             [("done", None)], "CRLF 行尾也能分帧")
+    check_eq(a('data: {"type":"content_block_delta",',
+               'data: "delta":{"type":"text_delta","text":"hi"}}'),
+             [("text", "hi")], "多行 data 拼接后仍是合法 JSON")
+    check_eq(a(": ping", "event: ping", 'data: {"type":"ping"}'),
+             [], "注释行 / event 行 / ping 都不产出事件")
+    check_eq(len(a('data:  {"type":"message_stop"}')), 1, "只剥一个前导空格")
+    check_eq(a('data: {"type":"content_block_start","index":0,'
+               '"content_block":{"type":"fallback","from":{"model":"a"}}}'),
+             [], "未知 content_block 类型被静默跳过，不抛错")
+    check_eq(a('data: {"type":"message_start","message":{}}'),
+             [], "message_start 不产出事件（换模型时会有第二个）")
+    check_eq(a('data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'),
+             [("error", "Overloaded")], "error 帧把接口原话带出来")
+    check_eq(a('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"半句"}}'),
+             [("text", "半句")], "没有 message_stop 的截断也要保住正文")
+
+    for reason in ("refusal", "pause_turn", "max_tokens"):
+        check_eq(a('data: {"type":"message_delta","delta":{"stop_reason":"%s"}}' % reason),
+                 [("stop_reason", reason)], "结束原因 %s 要能带出来" % reason)
+
+    check_eq(o("data: [DONE]"), [("done", None)], "[DONE] 收尾")
+    check_eq(o('data: {"choices":[{"delta":{"content":null,"reasoning_content":"想了想"},'
+               '"finish_reason":null}]}'),
+             [("thinking", None)], "content 为 null 而 reasoning_content 有值：不抛、也不出正文")
+    check_eq(o('data: {"choices":[{"delta":{"content":null},"finish_reason":"length"}]}'),
+             [("stop_reason", "length")], "finish_reason=length 要带出来")
+    check_eq(o('data: {"choices":[{"delta":{"content":"x"}}]}'),
+             [("text", "x")], "没有 [DONE]、流自然结束也算完，正文不丢")
+    check_eq(o('data: {"error":{"message":"Invalid API key"}}'),
+             [("error", "Invalid API key")], "OpenAI 侧错误也要带原话")
+
+    print("")
+    print("== 镜像 7：AI 对话的地址归一化与资料拼接 ==")
+    check_eq(normalize_base_url("https://api.anthropic.com/"), "https://api.anthropic.com",
+             "去掉末尾斜杠")
+    check_eq(normalize_base_url("https://api.deepseek.com/v1"), "https://api.deepseek.com/v1",
+             "不自动补、也不删 /v1")
+    check_eq(normalize_base_url("https://relay.example.com/anthropic/v1/"),
+             "https://relay.example.com/anthropic/v1", "带路径的地址原样保留")
+    check(normalize_base_url("api.anthropic.com") is None, "没有 scheme 被拒")
+    check(normalize_base_url("ftp://example.com") is None, "非 http(s) 被拒")
+    check(normalize_base_url("   ") is None, "空串被拒")
+    check(normalize_base_url("https://") is None, "没有主机名被拒")
+
+    hot = fixture_json("hot-topics.json")["items"][0]
+    story = fixture_json("story.json")["story"]
+    context = ai_news_context(hot, story)
+
+    check(story["title"] in context, "有 story 时用 story 的标题")
+    check(hot["title"] in ai_news_context(hot, None), "没有 story 时退回榜单标题")
+    check("第 %d 位" % hot["rank"] in context, "排名在")
+    check("%d 个来源" % hot["sourceCount"] in context, "来源数在")
+    check("%d 位参与者" % hot["participantCount"] in context, "参与者数在")
+    check(hot["links"]["original"] in context, "原文链接必须原样出现（web_fetch 只能抓对话里出现过的 URL）")
+    check(hot["links"]["aihot"] in context, "站内页链接在")
+    check(story["digest"].split("\n")[0].strip() in context, "摘要第一段在")
+    check(story["reports"][0]["title"] in context, "报道时间线的标题在")
+    check(absolute_short(parse_iso(hot["latestAt"])) in context, "时间用绝对格式")
+    check(not any(w in context for w in ("小时前", "天前", "分钟前", "刚刚")),
+          "不带相对时间（每轮都在变，会打断缓存前缀）")
+    check_eq(context, ai_news_context(hot, story), "确定性：同样输入两次结果一致")
+
+    truncated = ai_news_context(hot, story, limit=300)
+    check(len(truncated) < 400 and "已截断" in truncated, "超长要截断并留下标记")
+
+    turns = [("user", "这条为什么火？"), ("assistant", "因为同时被多人转引。"), ("user", "还有后续吗？")]
+    merged = contextual_turns(turns, context)
+    check_eq(len(merged), 3, "轮数不变")
+    check(merged[0][1].startswith(context), "资料并进第一条 user 消息")
+    check_eq(merged[0][1].split("\n\n---\n\n")[-1], "这条为什么火？", "原问题保留在资料后面")
+    check_eq(merged[1], ("assistant", "因为同时被多人转引。"), "助手那轮原样不动")
+    check_eq(merged[2][1], "还有后续吗？", "后续轮次不动")
+    check_eq(contextual_turns([("assistant", "x")], context), [("assistant", "x")],
+             "没有 user 轮时不乱并")
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)

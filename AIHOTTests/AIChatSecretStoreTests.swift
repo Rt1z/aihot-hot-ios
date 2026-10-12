@@ -1,0 +1,117 @@
+import XCTest
+
+@testable import AIHOT
+
+/// 假后端：单测绝不碰真钥匙串。
+private final class FakeSecretBackend: AIChatSecretBackend {
+
+    var storage: [String: String] = [:]
+    /// 模拟侧载签名下钥匙串写入失败（例如 `errSecMissingEntitlement`）。
+    var failWrites = false
+
+    func read(account: String) -> String? {
+        storage[account]
+    }
+
+    func write(_ value: String, account: String) -> Bool {
+        if failWrites { return false }
+        storage[account] = value
+        return true
+    }
+
+    func delete(account: String) {
+        storage.removeValue(forKey: account)
+    }
+}
+
+final class AIChatSecretStoreTests: XCTestCase {
+
+    private func makeSuite() -> (name: String, defaults: UserDefaults) {
+        let name = "aihot.tests.aichat.\(UUID().uuidString)"
+        return (name, UserDefaults(suiteName: name) ?? .standard)
+    }
+
+    func testStoresEachProtocolSeparately() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let store = AIChatSecretStore(backend: FakeSecretBackend(), defaults: defaults)
+        XCTAssertTrue(store.setKey("sk-ant", for: .anthropicMessages))
+        XCTAssertTrue(store.setKey("sk-openai", for: .openAICompatible))
+
+        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-ant")
+        XCTAssertEqual(store.key(for: .openAICompatible), "sk-openai", "切协议不能串 Key")
+    }
+
+    /// 钥匙串写不进去时必须还能用：退到 UserDefaults，并且**让界面知道已降级**。
+    /// 静默降级密钥存储是不能接受的。
+    func testFallsBackWhenKeychainWriteFails() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        backend.failWrites = true
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+
+        XCTAssertFalse(store.setKey("sk-fallback", for: .anthropicMessages))
+        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-fallback", "降级后必须读得回来")
+        XCTAssertTrue(store.isUsingFallback(for: .anthropicMessages))
+        XCTAssertFalse(store.isUsingFallback(for: .openAICompatible))
+    }
+
+    /// 后来钥匙串能写了，就不该再留着兜底那份（两处不一致最难查）。
+    func testSuccessfulWriteClearsFallbackCopy() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        backend.failWrites = true
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+        XCTAssertFalse(store.setKey("sk-1", for: .anthropicMessages))
+        XCTAssertTrue(store.isUsingFallback(for: .anthropicMessages))
+
+        backend.failWrites = false
+        XCTAssertTrue(store.setKey("sk-2", for: .anthropicMessages))
+        XCTAssertFalse(store.isUsingFallback(for: .anthropicMessages))
+        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-2")
+    }
+
+    func testEmptyValueClearsBothStores() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+        store.setKey("sk-x", for: .openAICompatible)
+        XCTAssertEqual(store.key(for: .openAICompatible), "sk-x")
+
+        store.setKey("", for: .openAICompatible)
+        XCTAssertEqual(store.key(for: .openAICompatible), "")
+        XCTAssertTrue(backend.storage.isEmpty)
+        XCTAssertFalse(store.isUsingFallback(for: .openAICompatible))
+    }
+
+    func testTrimsWhitespaceAndNewlines() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let store = AIChatSecretStore(backend: FakeSecretBackend(), defaults: defaults)
+        store.setKey("  sk-trim\n", for: .anthropicMessages)
+        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-trim", "粘贴密钥时最容易带上换行")
+    }
+
+    func testClearRemovesEverything() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+        store.setKey("a", for: .anthropicMessages)
+        store.setKey("b", for: .openAICompatible)
+
+        store.clear()
+        XCTAssertEqual(store.key(for: .anthropicMessages), "")
+        XCTAssertEqual(store.key(for: .openAICompatible), "")
+        XCTAssertTrue(backend.storage.isEmpty)
+    }
+}

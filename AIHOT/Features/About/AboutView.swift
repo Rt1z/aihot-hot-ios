@@ -13,6 +13,31 @@ struct AboutView: View {
     @State private var copiedDiagnostics = false
     @State private var showClearFavorites = false
 
+    // MARK: - AI 对话配置
+    //
+    // 每个协议各一套地址与模型，都用**字面量键**的 @AppStorage：
+    // 用「由另一个 @AppStorage 算出来的键」会在每次 body 求值时重建包装器、读到陈旧值。
+
+    @AppStorage(AppSettings.aiChatProtocolKey)
+    private var aiChatProtocolRaw: String = AIChatProtocol.anthropicMessages.rawValue
+    @AppStorage(AppSettings.aiChatAnthropicBaseURLKey)
+    private var anthropicBaseURL: String = AIChatProtocol.anthropicMessages.defaultBaseURL
+    @AppStorage(AppSettings.aiChatAnthropicModelKey)
+    private var anthropicModel: String = AIChatProtocol.anthropicMessages.defaultModel
+    @AppStorage(AppSettings.aiChatOpenAIBaseURLKey)
+    private var openAIBaseURL: String = ""
+    @AppStorage(AppSettings.aiChatOpenAIModelKey)
+    private var openAIModel: String = ""
+
+    /// 密钥不进 @AppStorage（那会每敲一个字写一次钥匙串），显式保存。
+    @State private var apiKeyDraft = ""
+    @State private var apiKeySaved = false
+    @State private var secretFellBack = false
+
+    @State private var isTestingConnection = false
+    @State private var testResult: String?
+    @State private var testFailed = false
+
     private var versionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"
@@ -43,6 +68,91 @@ struct AboutView: View {
                 Text("数据")
             } footer: {
                 Text("官方公开接口不提供热度指数、涨跌与爆/新标记，开启后会额外读取一次热点榜页面文本补全这几项；解析失败会自动退回接口字段（来源数、参与者数），不会显示错误数字。")
+            }
+
+            Section {
+                Picker("协议", selection: $aiChatProtocolRaw) {
+                    ForEach(AIChatProtocol.allCases) { option in
+                        Text(option.title).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                // 标签单独一行而不是塞进 TextField 的 placeholder：
+                // 这两个字段默认就有值，placeholder 在填好之后就看不见了，
+                // 那样一行只剩个光秃秃的 URL。
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("接口地址")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.textTertiary)
+                    TextField("https://api.anthropic.com", text: baseURLBinding)
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textPrimary)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("模型")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.textTertiary)
+                    TextField(selectedProtocol.modelPlaceholder, text: modelBinding)
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textPrimary)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("API Key")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.textTertiary)
+                    SecureField("sk-…", text: $apiKeyDraft)
+                        // 少了这几行，iOS 16 会把它当密码去自动填充、还会把首字母大写
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textPrimary)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.asciiCapable)
+                }
+
+                Button(action: saveAPIKey) {
+                    Label(apiKeySaved ? "已保存密钥" : "保存密钥", systemImage: "key")
+                }
+                .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button {
+                    Task { await testConnection() }
+                } label: {
+                    Label(
+                        isTestingConnection ? "正在测试…" : "测试连接",
+                        systemImage: "antenna.radiowaves.left.and.right"
+                    )
+                }
+                .disabled(isTestingConnection)
+
+                if let testResult = testResult {
+                    Text(testResult)
+                        .font(.system(size: 12))
+                        .foregroundColor(testFailed ? Theme.breakout : Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text("AI 对话")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(selectedProtocol.supportsWebTools
+                         ? "Anthropic 协议支持联网搜索与读取原文，两者由 Anthropic 服务端完成，不需要额外的搜索 Key。"
+                         : "OpenAI 兼容协议不支持联网搜索、也不会去读原文 —— 那两项依赖 Anthropic 的服务端工具，要另接一个搜索服务。这里只能对话。")
+                    Text("国内直连 api.anthropic.com 通常不通，接口地址可填兼容 Anthropic Messages 协议的中转地址。")
+                    Text("「测试连接」只拉一次模型列表，不产生生成计费。")
+                    Text("密钥存在系统钥匙串里，只保存在本机。")
+                    if secretFellBack {
+                        Text("注意：这台设备上钥匙串不可用，密钥已改用应用内存储（仅本机、卸载即丢失）。")
+                            .foregroundColor(Theme.breakout)
+                    }
+                }
             }
 
             Section("数据来源") {
@@ -123,6 +233,74 @@ struct AboutView: View {
             Button("清空收藏", role: .destructive) { favorites.clear() }
             Button("取消", role: .cancel) { }
         }
+        .task { loadAPIKey() }
+        // 切协议必须重读密钥草稿：否则会把 A 协议的 Key 存进 B 协议
+        .onChange(of: aiChatProtocolRaw) { _ in
+            loadAPIKey()
+            testResult = nil
+        }
         .safariSheet(url: $safariURL)
+    }
+
+    // MARK: - AI 对话配置
+
+    private var selectedProtocol: AIChatProtocol {
+        AIChatProtocol(rawValue: aiChatProtocolRaw) ?? .anthropicMessages
+    }
+
+    private var baseURLBinding: Binding<String> {
+        switch selectedProtocol {
+        case .anthropicMessages: return $anthropicBaseURL
+        case .openAICompatible: return $openAIBaseURL
+        }
+    }
+
+    private var modelBinding: Binding<String> {
+        switch selectedProtocol {
+        case .anthropicMessages: return $anthropicModel
+        case .openAICompatible: return $openAIModel
+        }
+    }
+
+    private func loadAPIKey() {
+        apiKeyDraft = AIChatSecretStore.shared.key(for: selectedProtocol)
+        secretFellBack = AIChatSecretStore.shared.isUsingFallback(for: selectedProtocol)
+        apiKeySaved = false
+    }
+
+    private func saveAPIKey() {
+        AIChatSecretStore.shared.setKey(apiKeyDraft, for: selectedProtocol)
+        secretFellBack = AIChatSecretStore.shared.isUsingFallback(for: selectedProtocol)
+        apiKeySaved = true
+    }
+
+    private func testConnection() async {
+        guard let config = AIChatConfig.resolve(
+            chatProtocol: selectedProtocol,
+            baseURLRaw: baseURLBinding.wrappedValue,
+            modelRaw: modelBinding.wrappedValue,
+            apiKey: apiKeyDraft
+        ) else {
+            testResult = "配置不完整：请检查接口地址与模型"
+            testFailed = true
+            return
+        }
+        guard !config.apiKey.isEmpty else {
+            testResult = "还没填 API Key"
+            testFailed = true
+            return
+        }
+
+        isTestingConnection = true
+        defer { isTestingConnection = false }
+
+        switch await AIChatAPI.shared.testConnection(config: config) {
+        case .success(let message):
+            testResult = message
+            testFailed = false
+        case .failure(let error):
+            testResult = error.message
+            testFailed = true
+        }
     }
 }

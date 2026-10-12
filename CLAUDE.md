@@ -61,6 +61,17 @@ RootView (TabView: 热点 | 收藏 | 设置)
 
 Each tab's root view owns its own `NavigationStack` (`TabView` outside, one `NavigationStack` per tab — never the reverse).
 
+**The AI chat layer** (feature: tap the bubble icon in `StoryDetailView`'s nav bar) is deliberately three separable pieces, and only the first is testable on this machine:
+
+```
+AIChatView (sheet) ──> AIChatModel (@MainActor, owns the bytes.lines loop)
+                          ├── AppSettings.currentAIChatConfig() ──> AIChatSecretStore (Keychain)
+                          └── AIChatAPI ──> AIChatRequestBuilder (two protocols' bodies/headers)
+                                              └── AIChatConfig (protocol, base URL, model)
+SSEParser (pure) ── SSEFrameReader + Anthropic/OpenAI decoders
+AIChatNewsContext (pure) ── HotTopic + Story? + prefetchedDigest ──> the prompt's material
+```
+
 ### Rules that will bite you if you don't know them
 
 **1. The upstream request contract is non-negotiable.** aihot.news publishes a `s-maxage` of 60s and the code honors it unconditionally: `HotTopicsStore.refresh()` throttles to 60s (5s only while `items.isEmpty`, so first launch and retry still work), and 429/503 `Retry-After` is stored in `nextAllowedAt` so *no* request is sent before it expires, with no parallel retries. Digest fetches are strictly serial for the same reason. There is deliberately no `force:` parameter on `refresh()` — don't add one.
@@ -85,6 +96,14 @@ Symptom if you get this wrong: "detail page loses its report timeline on second 
 
 **8. Order favorites by array position, not by sorting.** `FavoritesStore.items` is maintained newest-first by insertion, and `load()` returns the stored order untouched. Don't "simplify" it to `sorted(by: favoritedAt)` — Swift's `sort` is not stable, so two favorites saved in the same second would swap places on every relaunch. `FavoritesStoreTests.testOrderSurvivesReloadWhenTimestampsTie` pins this.
 
+**9. The AI client must NOT reuse `AIHOTAPI`'s session, and must keep `Accept-Encoding: identity`.** `AIHOTAPI`'s session is 15s idle / 30s total, sized for one-shot JSON. A thinking, web-searching chat turn easily exceeds 30s, so reusing it kills every request in a way that looks like "the API is broken". `AIChatAPI` builds its own configuration (90s idle / 600s resource). The explicit `identity` encoding matters for a second reason: URLSession otherwise asks for gzip and decompresses transparently, and that buffering layer is the classic cause of "the SSE doesn't stream, it all arrives at the end".
+
+**10. Two protocols, two implementations — never one wrapped in the other.** Anthropic (`/v1/messages`) and OpenAI-compatible (`/chat/completions`) have genuinely different wire formats. The Anthropic side must follow Anthropic's own shapes; do **not** route Claude through an OpenAI-compatible shim. All protocol-specific risk (max_tokens, thinking/effort, tool declarations, headers) is deliberately concentrated in `AIChatRequestBuilder` as named constants with comments, because none of it can be exercised locally. `AIChatRequestBuilder.enableRefusalFallbacks` is the documented one-line escape hatch if the `fallbacks` + beta-header pair is ever rejected (see README §4/§7).
+
+**11. The news material goes in the FIRST USER MESSAGE, never only in `system`.** Anthropic's server-side `web_fetch` only fetches URLs **already present in the conversation**, so the original-article link has to be in a message or the "read the original" capability silently does nothing. Keeping it in the first user turn also keeps `system`/`tools` byte-stable and `messages` append-only, so the cached prefix survives the whole conversation. `ChatNewsContext` also uses **absolute** times only — `RelativeTime.relative` ("3 小时前") changes every turn and would break that prefix.
+
+**12. Multi-turn history is text-only, on purpose — keep it that way.** Only `{role, content: String}` pairs are sent back; thinking blocks and server-tool blocks are never reconstructed or echoed. This is not laziness: the preserved-thinking history check only validates `thinking` blocks you actually replay, so sending none puts the feature outside that check's blast radius entirely, and dropping server-tool blocks is valid because those results were produced server-side inside the same response (no dangling client `tool_use` to answer). `AIChatRequestBuilderTests.testAnthropicMessagesAreTextOnlyAndCarryContextInFirstUserTurn` pins the invariant — if it goes red, someone has re-entered that blast radius.
+
 ### Project file conventions
 
 - **Never add `info:` to a target in `project.yml`.** XcodeGen's `info.path` means "generate a plist *at* this path", not "use this file as the base". With it set, XcodeGen overwrites `AIHOT/Info.plist` with its own defaults and every hand-written key is lost — that silently shipped an app named `AIHOT` instead of `AI 热点榜`, with no `UILaunchScreen` (letterboxed on modern iPhones), rotatable to landscape, and with `CFBundleVersion` frozen at `1` so AltStore could never detect an update. The target sets `INFOPLIST_FILE: AIHOT/Info.plist` in `settings` instead, which is why the committed plist is the real one and why `preflight`'s check of it is meaningful. `CFBundleVersion` must stay `$(CURRENT_PROJECT_VERSION)` so the CI run-number override lands.
@@ -103,6 +122,8 @@ Symptom if you get this wrong: "detail page loses its report timeline on second 
 - API model fields stay `Optional` liberally (`Source.name`, etc.) so one malformed item can't blank the whole list on decode.
 - `RegexUtil` exists so no regex library gets added; prefer it over pulling in a dependency.
 - There is no networking in tests, and no fixtures are ever written back — the whole test suite is pure/offline.
+- The mirror in `tools/logic_tests.py` now also covers the SSE frame reader and both protocol decoders (against `AIHOTTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read), plus the AI base-URL normalisation and the news-context builder. That is the only pre-CI signal for the trickiest new logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (`tools/logic_tests.py` can't build them), and the secret store (a fake backend).
+- Secrets never go in `@AppStorage`/`@AppStorage`-like paths: the API key lives in the Keychain (`AIChatSecretStore`), with a deliberate UserDefaults fallback **that the UI must disclose**. Two error codes to keep apart: `errSecItemNotFound (-25300)` means "nothing saved yet" (never a failure, and treating it as one writes an empty value on first launch), while something like `errSecMissingEntitlement (-34018)` is a real failure and triggers the fallback.
 
 ### Attribution constraints (product, not just legal)
 

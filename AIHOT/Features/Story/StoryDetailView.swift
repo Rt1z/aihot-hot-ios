@@ -74,6 +74,7 @@ struct StoryDetailView: View {
 
     @StateObject private var model = StoryDetailModel()
     @State private var safariURL: URL?
+    @State private var showChat = false
 
     private var isFavorited: Bool {
         favorites.contains(item)
@@ -151,6 +152,18 @@ struct StoryDetailView: View {
         .navigationTitle("详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // 两个独立的 ToolbarItem，而不是 ToolbarItemGroup：本文件原本就是单项写法，
+            // 且 inline 标题下 group 里两个纯图标按钮的间距历史上不太稳。
+            // 声明顺序即左右顺序 —— 对话在左，书签仍在最右，位置不变。
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showChat = true
+                } label: {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .foregroundColor(Theme.accent)
+                }
+                .accessibilityLabel("AI 对话")
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     favorites.toggle(item)
@@ -162,6 +175,10 @@ struct StoryDetailView: View {
             }
         }
         .task { await model.load(publicId: publicId) }
+        // 对话用的是本页已经拿到的资料（榜单条目 + 故事 + 预取摘要），不额外发请求
+        .sheet(isPresented: $showChat) {
+            AIChatView(item: item, story: model.story, prefetchedDigest: prefetchedDigest)
+        }
         .safariSheet(url: $safariURL)
     }
 

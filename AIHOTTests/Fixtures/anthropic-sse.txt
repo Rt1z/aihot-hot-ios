@@ -1,0 +1,64 @@
+event: message_start
+data: {"type":"message_start","message":{"id":"msg_01XkQp","type":"message","role":"assistant","model":"claude-opus-5-5","usage":{"input_tokens":1284,"output_tokens":1}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_01A","name":"web_search","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"Karpathy LLM 认知鸿沟\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01A","content":[{"type":"web_search_result","title":"Karpathy 谈 LLM 能力分层","url":"https://example.com/a","encrypted_content":"..."}]}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: ping
+data: {"type":"ping"}
+
+: 这是一条注释行，有些中转站拿它当心跳
+
+event: content_block_start
+data: {"type":"content_block_start","index":2,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"thinking_delta","thinking":"用户问的是这条为什么火，先看摘要。"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"signature_delta","signature":"ErUBCkYIBRgCIkA..."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":2}
+
+event: content_block_start
+data: {"type":"content_block_start","index":3,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"text_delta","text":"这条说的是"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"text_delta","text":" Karpathy 对 LLM"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"text_delta","text":" 认知鸿沟的看法。"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://example.com/a"}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"text_delta","text":"他估算全球约 60 亿人几乎没接触过大模型。"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":3}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":null,"stop_sequence":null},"usage":{"output_tokens":96}}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":118}}
+
+event: message_stop
+data: {"type":"message_stop"}

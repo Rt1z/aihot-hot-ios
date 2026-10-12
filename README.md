@@ -68,6 +68,7 @@
 | 24 小时走势图 | 不做（公开接口没有这项数据） |
 | /story/xxx 详情页 | 原生详情页：AI 摘要分段 + 报道时间线（来源/时间/摘要/原文）；右上角书签可收藏这一条 |
 | 原文链接 | 应用内 `SFSafariViewController` 打开 |
+| 详情页右上「对话」 | AI 对话弹窗：多轮、流式；模型读过这条的摘要与时间线，Anthropic 协议下还能联网搜索、读原文（见第 4 节） |
 | （App 新增）收藏 | 底部「收藏」tab：按收藏时间倒序、左滑「取消收藏」。详情页是唯一的收藏入口（列表行上刻意不放按钮，避免按钮套在整行的链接里） |
 
 配色 token 全部集中在 `AIHOT/Design/Theme.swift`（近黑底 + 热度橙，深浅色跟随系统），想改风格只改这一个文件。
@@ -117,7 +118,40 @@
 
 ---
 
-## 4. 目录结构
+## 4. AI 对话（要自己填 Key）
+
+详情页右上角有个对话按钮：点开就能就**这一条**新闻追问，多轮、流式回复。模型手里有这条的
+摘要、来源与报道时间线；走 Anthropic 协议时，它还会自己去联网搜索、或直接读取原文。
+
+本 App 不带任何内置额度，用的是**你自己的 Key**，在 **设置 → AI 对话** 里填：
+
+| | Anthropic | OpenAI 兼容 |
+| --- | --- | --- |
+| 接口地址 | `https://api.anthropic.com`（可改） | 自己填，如 `https://api.deepseek.com/v1` |
+| 模型 | `claude-opus-5-5` | 自己填，如 `deepseek-chat` |
+| API Key | 你的 Key | 你的 Key |
+
+两条路的能力**不一样**（设置页里会随选择变化提示，别切过去以后才发现）：
+
+- **Anthropic**：联网搜索与读取原文由 Anthropic 的服务端工具完成，不需要额外的搜索 Key。
+- **OpenAI 兼容**：**没有**联网搜索、也不会去读原文 —— 那两项依赖 Anthropic 的服务端工具，
+  要自己再接一个搜索服务。这里只能就已有的摘要与时间线对话。
+
+几个要知道的点：
+
+- **先点「测试连接」**：它只拉一次模型列表、不产生生成计费，并顺带核对你填的模型名在不在里面。
+- **密钥存在系统钥匙串里**，只在本机、不进备份。万一这台设备的签名环境不允许用钥匙串，
+  会退回应用内存储，并**在设置页里明确写出来**（不会静默降级）。
+- **对话不落盘**：关掉弹窗就没了。
+- **费用**按你所用服务商的价目算。Anthropic 那侧联网搜索是**按次**额外计费的，
+  所以「这条有后续吗」这类问题会比纯问答贵一些。
+- **国内网络**：`api.anthropic.com` 直连通常不通，接口地址可以填兼容 Anthropic Messages 协议的
+  中转地址。**只支持 https**：iOS 默认不允许明文 HTTP，填 `http://` 会明确报错；真要让某个
+  局域网地址走 http，得自己在 `AIHOT/Info.plist` 里加 `NSExceptionDomains` 例外。
+- **快 / 深**：默认 `"low"`（手机问答对延迟敏感）。想让它想得更久，改
+  `AIChatRequestBuilder.effort`。
+
+## 5. 目录结构
 
 ```
 project.yml                 XcodeGen 工程定义（改包名/显示名/版本只改这里）
@@ -136,14 +170,16 @@ AIHOT/
                             FavoritesStore（收藏落盘，UserDefaults）、
                             StoryID、AppSettings、
                             HTMLTextExtractor + HotPageEnricher（网页文本增强）
+                            SSEParser、AIChatConfig、AIChatRequestBuilder、
+                            AIChatNewsContext、AIChatSecretStore（钥匙串）、AIChatAPI（AI 对话）
   Features/Hot/             榜单页、大卡、紧凑行、RelativeTime
   Features/Favorites/       收藏列表、收藏行
-  Features/Story/           详情页（AI 摘要 + 时间线 + 收藏书签）
-  Features/About/           设置页（原「关于」：外观/数据/缓存/收藏/排查/署名）
+  Features/Story/           详情页（AI 摘要 + 时间线 + 收藏书签 + 对话弹窗 AIChatModel/AIChatView）
+  Features/About/           设置页（原「关于」：外观/AI 对话/数据/缓存/收藏/排查/署名）
 AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解析/网页解析）
 ```
 
-## 5. 改点什么
+## 6. 改点什么
 
 | 想改 | 改哪里 |
 | --- | --- |
@@ -151,11 +187,13 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 | 包名（bundle id） | `project.yml` → `PRODUCT_BUNDLE_IDENTIFIER`（免费账号下只要全局唯一即可） |
 | 版本号 | `project.yml` → `MARKETING_VERSION`；build 号由 CI 用 run number 自动递增，AltStore 才能识别为更新 |
 | 配色/字号 | `AIHOT/Design/Theme.swift` |
+| 对话用哪家 / 哪个模型 | App 内「设置 → AI 对话」（地址、模型、Key 都在这儿） |
+| 对话的「快 / 深」 | `AIChatRequestBuilder.effort`（默认 `low`，偏快） |
 | 图标 | 换掉 `tools/make_appicon.py` 的画法，或自己放一张 1024×1024 PNG 到 `AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` |
 
 > 有 Mac 的话：`brew install xcodegen && python3 tools/make_appicon.py && xcodegen generate && open AIHOT.xcodeproj`，就能在 Xcode 里跑。
 
-## 6. 出问题先看这里
+## 7. 出问题先看这里
 
 | 现象 | 处理 |
 | --- | --- |
@@ -168,16 +206,21 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 | 打开就提示网络不可用 | 榜单页会显示离线横幅并展示缓存；检查网络后下拉重试 |
 | 下拉刷新像「没反应」 | 这是有意的：60 秒内不重复请求（接口 s-maxage 约定）。等过 60 秒再拉，或直接杀掉重开 |
 | 显示「请求过于频繁」 | 碰到接口 429，App 会在 `Retry-After` 到期前不再发请求，等提示的时间过去即可 |
+| 对话报 400，且错误里提到 fallback / anthropic-beta | 那是 `AIChatRequestBuilder.enableRefusalFallbacks` 那两行（`fallbacks` + beta 头）没被服务端接受。把它改成 `false` 即可 |
+| 对话报「密钥无效或没有权限」 | 检查「设置 → AI 对话」里协议与 Key 是否对得上（两条协议的 Key 是分开存的） |
+| 对话报「接口地址是 http」 | iOS 默认不允许明文 HTTP。改用 https，或按第 4 节给该地址单独加例外 |
+| 对话一直不出字、结束后才一次性冒出来 | 若走的是自己的中转，确认它没有压缩/缓存响应；App 侧已经显式要求 `Accept-Encoding: identity` |
+| 「测试连接」说模型名不在列表里 | 模型名打错了，或这个 Key 用不了这个模型 |
 | App 7 天后打不开 | 免费证书过期，AltServer 开着 + 同 Wi-Fi 让 AltStore 自动续签，或手动 Refresh |
 | 热度指数/涨跌不显示 | 页面文本解析没命中（官网改版了）。功能不受影响；进 App「设置 → 排查 → 复制诊断信息」，把内容发出来即可修 |
 
-## 7. 许可与署名
+## 8. 许可与署名
 
 - 内容版权归 **AIHOT（北京虚实空际文化科技有限公司）及各原始来源**所有。App 内固定显示「数据来源：AIHOT」并链回官网，保留原始链接。
 - AIHOT 条款允许**个人非商业**使用；本 App 仅供自己使用，**请勿公开分发 IPA、不要做公开镜像或商业用途**。
 - 本项目不含任何 AIHOT 的代码或数据文件，全部数据在运行时从公开接口获取。
 
-## 8. 验收清单
+## 9. 验收清单
 
 - [ ] Actions 绿，拿到 IPA
 - [ ] AltStore 装成功，图标出现在桌面并能打开
@@ -191,3 +234,8 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 - [ ] 杀掉 App 重开，收藏还在；飞行模式下收藏列表仍能显示标题与来源
 - [ ] 「设置 → 收藏 → 清空收藏」可用且会先确认；「清除本地缓存」之后收藏仍在
 - [ ] 已跌出榜单的收藏不显示热度数字（只显示保存时的来源数/参与者数），不出现别人的数字
+- [ ] 设置 → AI 对话 填好地址/模型/Key，点「测试连接」返回「连接正常 · …」
+- [ ] 详情页右上角对话按钮能打开弹窗，问一个不需要联网的问题能流式出字
+- [ ] （走 Anthropic 时）问一个需要联网的问题，状态行出现「正在联网搜索…」
+- [ ] 生成中点「停止」能立刻停下，而且**不**弹错误条
+- [ ] 关掉弹窗再打开，对话是空的（不落盘）
