@@ -73,7 +73,7 @@ struct StoryDetailView: View {
     let prefetchedDigest: String?
 
     @StateObject private var model = StoryDetailModel()
-    @State private var safariURL: URL?
+    @State private var webLink: WebLinkSheet?
     @State private var showChat = false
 
     private var isFavorited: Bool {
@@ -103,13 +103,20 @@ struct StoryDetailView: View {
                         .cardBackground()
                     }
 
+                    if let summary = ReportTimeline.make(story: story) {
+                        SectionTitle(text: "报道节奏")
+                        reportPaceCard(summary: summary, story: story)
+                    }
+
                     if !story.sortedReports.isEmpty {
                         SectionTitle(text: "报道时间线")
                         VStack(spacing: 0) {
                             let reports = story.sortedReports
                             ForEach(reports.indices, id: \.self) { index in
                                 ReportRow(report: reports[index]) { url in
-                                    safariURL = url
+                                    // 报道行是「扫一眼来源」的场景，保持原网页：
+                                    // 行内没地方放「网页版」逃生口
+                                    webLink = WebLinkSheet(url: url)
                                 }
                                 if index < reports.count - 1 {
                                     Hairline().padding(.leading, 14)
@@ -179,7 +186,7 @@ struct StoryDetailView: View {
         .sheet(isPresented: $showChat) {
             AIChatView(item: item, story: model.story, prefetchedDigest: prefetchedDigest)
         }
-        .safariSheet(url: $safariURL)
+        .webLinkSheet(item: $webLink)
     }
 
     private var titleBlock: some View {
@@ -248,16 +255,48 @@ struct StoryDetailView: View {
         VStack(spacing: 8) {
             if let link = item.links?.aihot ?? model.story?.links?.aihot, let url = URL(string: link) {
                 LinkButton(title: "在 AIHOT 阅读全文", systemImage: "text.book.closed", url: url) { url in
-                    safariURL = url
+                    // aihot.news 是网页应用、没有文章正文，阅读器不会生效 —— 照旧走网页
+                    webLink = WebLinkSheet(url: url)
                 }
             }
             if let link = item.links?.original, let url = URL(string: link) {
-                LinkButton(title: "打开原文", systemImage: "arrow.up.right.square", url: url) { url in
-                    safariURL = url
+                HStack(spacing: 10) {
+                    LinkButton(title: "打开原文", systemImage: "arrow.up.right.square", url: url) { url in
+                        // 主入口直接进阅读器：去掉站点自己的导航与广告，只留正文
+                        webLink = WebLinkSheet(url: url, entersReader: true)
+                    }
+                    // 逃生口：阅读器抽得不好的页面，从这里退回原网页
+                    Button("网页版") {
+                        webLink = WebLinkSheet(url: url)
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.accent)
+                    .buttonStyle(.plain)
                 }
             }
         }
         .padding(.top, 4)
+    }
+
+    /// 报道节奏：柱状图 + 一行说明（接口给的只是最近一批时再多一句）。
+    private func reportPaceCard(summary: ReportTimeline.Summary, story: Story) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ReportTimelineChart(summary: summary)
+
+            Text("按接口返回的 \(summary.totalTimestamped) 条报道统计 · 峰值 \(summary.peak.label) 的 \(summary.peak.count) 条")
+                .font(Typography.meta)
+                .foregroundColor(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if summary.truncated, let total = story.reportCount {
+                // 报道列表可能只是最近一批 —— 图上的数字不能假装是全部（不编造数字）
+                Text("接口共 \(total) 篇报道，图上只统计了其中带发布时间的 \(summary.totalTimestamped) 条")
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .cardBackground()
     }
 }
 

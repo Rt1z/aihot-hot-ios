@@ -559,6 +559,128 @@ def ai_news_context(item, story, prefetched_digest=None, limit=6000, max_reports
 
 
 # --------------------------------------------------------------------------
+# 镜像 9：报道节奏（ReportTimeline）
+# --------------------------------------------------------------------------
+# 与 Swift 的 ReportTimeline.make 一一对应。三档粒度按 allCases 顺序从细到粗试，
+# 取第一个装得下的；桶按北京时间对齐；空桶保留；峰值并列取最早。
+
+MAXIMUM_BUCKETS = 24
+MAXIMUM_AXIS_LABELS = 5
+
+INTERVALS = ("15m", "hour", "day")
+
+
+def floor_bucket(when, interval):
+    """对齐到所属桶的起点（北京时间）。对应 Swift 的 floor(_:interval:)。"""
+    local = when.astimezone(BEIJING)
+    if interval == "15m":
+        return local.replace(minute=local.minute // 15 * 15, second=0, microsecond=0)
+    if interval == "hour":
+        return local.replace(minute=0, second=0, microsecond=0)
+    return local.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def advance_bucket(when, interval):
+    if interval == "15m":
+        return when + datetime.timedelta(minutes=15)
+    if interval == "hour":
+        return when + datetime.timedelta(hours=1)
+    return when + datetime.timedelta(days=1)
+
+
+def bucket_starts(first, last, interval):
+    end = floor_bucket(last, interval)
+    starts = []
+    cursor = floor_bucket(first, interval)
+    while cursor <= end and len(starts) < 400:
+        starts.append(cursor)
+        cursor = advance_bucket(cursor, interval)
+    return starts
+
+
+def bucket_label(start, interval):
+    local = start.astimezone(BEIJING)
+    if interval == "day":
+        return "%d月%d日" % (local.month, local.day)
+    return "%02d:%02d" % (local.hour, local.minute)
+
+
+def axis_labels(labels):
+    """桶数多于 5 个时挑 5 个刻度：下标 i * (n - 1) / 4。
+
+    只用整数除法 —— 绝不能用 round()：Python 的 round() 是银行家舍入、
+    Swift 的 rounded() 是四舍五入，n = 25 时两边会挑出不同的刻度。
+    """
+    count = len(labels)
+    if count <= MAXIMUM_AXIS_LABELS:
+        return list(labels)
+    indices = []
+    for step in range(MAXIMUM_AXIS_LABELS):
+        index = step * (count - 1) // (MAXIMUM_AXIS_LABELS - 1)
+        if not indices or indices[-1] != index:
+            indices.append(index)
+    return [labels[index] for index in indices]
+
+
+def report_timeline(story):
+    """story 字典 → 节奏图数据；桶数不足 2 个时返回 None（与 Swift 一致）。"""
+    dated = sorted(
+        parse_iso(report["publishedAt"])
+        for report in (story.get("reports") or [])
+        if report.get("publishedAt")
+    )
+    if len(dated) < 2:
+        return None
+    first, last = dated[0], dated[-1]
+
+    interval = INTERVALS[-1]
+    starts = []
+    for candidate in INTERVALS:
+        interval = candidate
+        starts = bucket_starts(first, last, candidate)
+        if len(starts) <= MAXIMUM_BUCKETS:
+            break
+    if len(starts) < 2:
+        return None
+
+    counts = [0] * len(starts)
+    for when in dated:
+        index = None
+        for position, start in enumerate(starts):
+            if start <= when:  # 正好踩在边界上的报道算进右边那一桶
+                index = position
+            else:
+                break
+        if index is not None:
+            counts[index] += 1
+
+    maximum = max(counts)
+    peak_index = counts.index(maximum)  # 并列取最早
+
+    buckets = [
+        {
+            "start": start,
+            "label": bucket_label(start, interval),
+            "count": counts[position],
+            "is_peak": position == peak_index,
+            "is_newest": position == len(counts) - 1,
+        }
+        for position, start in enumerate(starts)
+    ]
+
+    cutoff = last - datetime.timedelta(seconds=86400)
+    return {
+        "interval": interval,
+        "buckets": buckets,
+        "peak": buckets[peak_index],
+        "total_timestamped": len(dated),
+        "last_24_hour_count": len([when for when in dated if when >= cutoff]),
+        "axis_labels": axis_labels([bucket["label"] for bucket in buckets]),
+        "truncated": (story.get("reportCount") or 0) > len(dated),
+    }
+
+
+# --------------------------------------------------------------------------
 # 断言（全部以夹具为准）
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
@@ -831,6 +953,71 @@ def run():
            "JSON-RPC error 要抛错并带原话", "Invalid key")
     raises(lambda: anysearch_result_text({"result": {"content": []}}),
            "空结果要抛错，而不是回一个空串")
+
+    print("")
+    print("== 镜像 9：报道节奏（分桶 / 峰值 / 轴刻度）==")
+    timeline_story = fixture_json("story-timeline.json")["story"]
+    timeline = report_timeline(timeline_story)
+    check(timeline is not None, "夹具应当能画出节奏图")
+    if timeline:
+        check_eq(timeline["interval"], "hour", "10 小时跨度走「1 小时」档")
+        check_eq([bucket["label"] for bucket in timeline["buckets"]],
+                 ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00"],
+                 "桶是逐小时连续的")
+        check_eq([bucket["count"] for bucket in timeline["buckets"]], [2, 2, 2, 0, 0, 0, 3, 2, 1, 2], "每桶报道数")
+        check_eq([bucket["label"] for bucket in timeline["buckets"] if bucket["count"] == 0],
+                 ["09:00", "10:00", "11:00"], "断档那几小时的 0 值桶要留着，不能被删掉")
+        check_eq(len({bucket["label"] for bucket in timeline["buckets"]}), len(timeline["buckets"]),
+                 "标签不能重复（x 轴按标签分类，重名会被合并成一根柱子）")
+        check_eq(timeline["peak"]["label"], "12:00", "峰值桶")
+        check_eq(timeline["peak"]["count"], 3, "峰值条数")
+        check_eq(len([bucket for bucket in timeline["buckets"] if bucket["is_peak"]]), 1, "并列时只标最早的一个")
+        check_eq([bucket["label"] for bucket in timeline["buckets"] if bucket["is_newest"]],
+                 ["15:00"], "只有最新那一桶是 isNewest")
+        check_eq(timeline["total_timestamped"], 14, "没有 publishedAt 的那条不进图")
+        check_eq(sum(bucket["count"] for bucket in timeline["buckets"]), 14, "桶里加起来等于有时间的条数")
+        check_eq(timeline["last_24_hour_count"], 14, "整条流只跨 10 小时，都在最新一条之后 24 小时内")
+        check_eq(timeline["axis_labels"], ["06:00", "08:00", "10:00", "12:00", "15:00"], "轴刻度均匀且含首尾")
+        check_eq(timeline["truncated"], True, "接口说 43 条、图上只有 14 条：要说明被截断")
+
+    check(report_timeline({}) is None, "没有任何报道：不画")
+    check(report_timeline({"reports": [{"publishedAt": "2026-10-12T00:00:00.000Z"}]}) is None,
+          "只有 1 条有时间的报道：不画（一根柱子没有可比性）")
+    check(report_timeline({"reports": [{"publishedAt": None}]}) is None, "有报道但都没有时间：不画")
+    check(report_timeline({"reports": [
+        {"publishedAt": "2026-10-12T03:00:00.000Z"},
+        {"publishedAt": "2026-10-12T03:05:00.000Z"},
+    ]}) is None, "两条落在同一个 15 分钟桶里：画不出节奏，不画")
+
+    # 15 分钟这一档（夹具走的是「1 小时」，这里补上）
+    quarter = report_timeline({"reports": [
+        {"publishedAt": "2026-10-12T00:05:00.000Z"},
+        {"publishedAt": "2026-10-12T00:20:00.000Z"},
+        {"publishedAt": "2026-10-12T00:35:00.000Z"},
+    ]})
+    check(quarter is not None, "半小时内的三条也能画")
+    if quarter:
+        check_eq(quarter["interval"], "15m", "半小时跨度走「15 分钟」档")
+        check_eq([bucket["label"] for bucket in quarter["buckets"]], ["08:00", "08:15", "08:30"],
+                 "对齐到 15 分钟边界（北京时间）")
+        check_eq([bucket["count"] for bucket in quarter["buckets"]], [1, 1, 1], "每桶一条")
+        check_eq(quarter["peak"]["label"], "08:00", "三个桶并列时峰值取最早")
+
+    # 跨度大要降档。用的是 2020 年的数据：实现里一旦读了「当前时间」，这里就会退化成空窗口。
+    daily = report_timeline({"reports": [
+        {"publishedAt": "2020-01-01T00:00:00.000Z"},
+        {"publishedAt": "2020-01-02T16:00:00.000Z"},
+        {"publishedAt": "2020-01-04T08:00:00.000Z"},
+    ]})
+    check(daily is not None, "跨多天也要能画")
+    if daily:
+        check_eq(daily["interval"], "day", "跨度大就降档到「每天」")
+        check_eq([bucket["label"] for bucket in daily["buckets"]],
+                 ["1月1日", "1月2日", "1月3日", "1月4日"], "按北京时间的「天」切")
+        check_eq([bucket["count"] for bucket in daily["buckets"]], [1, 0, 1, 1], "没报道的那天留着空桶")
+        check_eq(daily["peak"]["label"], "1月1日", "并列取最早")
+        check_eq(daily["last_24_hour_count"], 1, "只有最后一条在最新一条之后 24 小时内")
+        check_eq(daily["axis_labels"], ["1月1日", "1月2日", "1月3日", "1月4日"], "不足 5 个刻度就全显示")
 
     print("镜像测试：通过 %d 项" % _passed)
     if _failed:

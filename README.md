@@ -66,12 +66,25 @@
 | 「10月12日 10:35 更新」 | 优先用页面文本里的真实时间，取不到就显示「刷新于 …」 |
 | NO.04–10 紧凑列表 | 一张卡片内的紧凑行：序号 + 标题 + 摘要 + 指标 |
 | 24 小时走势图 | 不做（公开接口没有这项数据） |
-| /story/xxx 详情页 | 原生详情页：AI 摘要分段 + 报道时间线（来源/时间/摘要/原文）；右上角书签可收藏这一条 |
-| 原文链接 | 应用内 `SFSafariViewController` 打开 |
+| /story/xxx 详情页 | 原生详情页：AI 摘要分段 + 报道节奏图 + 报道时间线（来源/时间/摘要/原文）；右上角书签可收藏这一条 |
+| （App 新增）报道节奏 | 把这条的报道按**北京时间**切成时间桶画成柱状图（见下），中间没人跟的时段是空柱子 —— 「正在爆发」和「已经凉了」一眼能分开 |
+| 原文链接 | 应用内 `SFSafariViewController` 打开，**默认进系统阅读器模式**（只有正文）；旁边留一个「网页版」入口，抽得不好时点它退回原网页 |
 | 详情页右上「对话」 | AI 对话弹窗：多轮、流式；模型读过这条的摘要与时间线，Anthropic 协议下还能联网搜索、读原文（见第 4 节） |
 | （App 新增）收藏 | 底部「收藏」tab：按收藏时间倒序、左滑「取消收藏」。详情页是唯一的收藏入口（列表行上刻意不放按钮，避免按钮套在整行的链接里） |
 
 配色 token 全部集中在 `AIHOT/Design/Theme.swift`（近黑底 + 热度橙，深浅色跟随系统），想改风格只改这一个文件。
+
+### 关于「报道节奏」
+
+同一份报道时间线，换个看法：横轴是时间、纵轴是那一格里有几条报道。规则都在
+`AIHOT/Services/ReportTimeline.swift`（纯函数，另有 Python 镜像与单测）：
+
+- 粒度三档 —— **15 分钟 / 1 小时 / 1 天**，从细到粗取第一个「不超过 24 根柱子」的。真实数据基本都落在前两档；
+- 时间按**北京时间**对齐（和列表里的时间显示同一个口径）；
+- **中间没人报道的那几格保留成空柱子** —— 断档本身就是「已经凉了」的信号，删掉等于把结论删掉；
+- 只统计接口返回里**带发布时间**的报道；`reportCount` 比实际条数多时（接口只给最近一批），图下面会写明这一点，**不编造数字**；
+- 没有发布时间的报道图里不画，但仍然留在下面的文字时间线里；
+- 有发布时间的报道少于 2 条、或全挤在同一格里 —— 这一节**不出现**（一根柱子没有可比性）。
 
 ---
 
@@ -176,16 +189,19 @@ AIHOT/
                             SnapshotCache（榜单快照）、StoryCache（故事正文落盘）、
                             FavoritesStore（收藏落盘，UserDefaults）、
                             StoryID、AppSettings、
+                            ReportTimeline（报道节奏分桶，纯函数 + Python 镜像）、
                             HTMLTextExtractor + HotPageEnricher（网页文本增强）
                             SSEParser（流式解析）、AIChatTool（工具调用拼接）、
                             AIChatConfig、AIChatRequestBuilder、AIChatNewsContext、
                             AIChatSecretStore（钥匙串）、AIChatAPI（AI 对话）、
                             AnySearchAPI（联网搜索 / 读网页）
+  Features/Common/          SafariView（SFSafariViewController，可选阅读器模式 + WebLinkSheet）
   Features/Hot/             榜单页、大卡、紧凑行、RelativeTime
   Features/Favorites/       收藏列表、收藏行
-  Features/Story/           详情页（AI 摘要 + 时间线 + 收藏书签 + 对话弹窗 AIChatModel/AIChatView）
+  Features/Story/           详情页（AI 摘要 + 报道节奏图 + 时间线 + 收藏书签 + 对话弹窗）、
+                            ReportTimelineChart（Swift Charts 柱状图）
   Features/About/           设置页（原「关于」：外观/AI 对话/数据/缓存/收藏/排查/署名）
-AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解析/网页解析）
+AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解析/网页解析/报道节奏）
 ```
 
 ## 6. 改点什么
@@ -198,6 +214,8 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 | 配色/字号 | `AIHOT/Design/Theme.swift` |
 | 对话用哪家 / 哪个模型 | App 内「设置 → AI 对话」（地址、模型、Key 都在这儿） |
 | 对话的「快 / 深」 | `AIChatRequestBuilder.effort`（默认 `low`，偏快） |
+| 原文要不要用阅读器 | `AIHOT/Features/Story/StoryDetailView.swift` 的 `WebLinkSheet(url:entersReader:)` —— `entersReader: true` 是进阅读器，「网页版」那个按钮用的是默认的 `false` |
+| 报道节奏图长什么样 | `AIHOT/Services/ReportTimeline.swift`（分桶/标签/轴刻度，改完记得同步 `tools/logic_tests.py` 的镜像 9）+ `AIHOT/Features/Story/ReportTimelineChart.swift`（柱子颜色与高度） |
 | 图标 | 换掉 `tools/make_appicon.py` 的画法，或自己放一张 1024×1024 PNG 到 `AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` |
 
 > 有 Mac 的话：`brew install xcodegen && python3 tools/make_appicon.py && xcodegen generate && open AIHOT.xcodeproj`，就能在 Xcode 里跑。
@@ -224,6 +242,8 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 | 「测试连接」说模型名不在列表里 | 模型名打错了，或这个 Key 用不了这个模型 |
 | App 7 天后打不开 | 免费证书过期，AltServer 开着 + 同 Wi-Fi 让 AltStore 自动续签，或手动 Refresh |
 | 热度指数/涨跌不显示 | 页面文本解析没命中（官网改版了）。功能不受影响；进 App「设置 → 排查 → 复制诊断信息」，把内容发出来即可修 |
+| 详情页没有「报道节奏」这一节 | 正常：带发布时间的报道少于 2 条、或全挤在同一格里就不画（一条新闻刚开始被报道时就是这样） |
+| 阅读器里正文不全 / 少了图片 | 那是系统阅读器对这家站点的抽取结果。点「打开原文」旁边的**「网页版」**，退回站点自己的页面 |
 
 ## 8. 许可与署名
 
@@ -239,7 +259,9 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 - [ ] 点一条进详情，AI 摘要与官网 `/story/xxx` 一致，报道时间线正常
 - [ ] 飞行模式重开 App：显示缓存 + 离线横幅，不白屏
 - [ ] 深色/浅色切换正常，大字号下不破版
-- [ ] 原文按钮在应用内打开
+- [ ] 原文按钮在应用内打开，且**默认是阅读器模式**（纯正文）；点旁边的「网页版」能退回原网页
+- [ ] 报道多的 story 能看到「报道节奏」柱状图，断档那几小时是贴着底的空柱子，最高那根和下面那行说明的峰值对得上
+- [ ] 报道只有 0–1 条的 story，详情页**不出现**「报道节奏」这一节，页面不破版
 - [ ] 底部三个 tab 能切换，选中色是热度橙
 - [ ] 详情页右上角能收藏/取消收藏；收藏列表按收藏时间倒序、左滑「取消收藏」可用；没有收藏时显示空态
 - [ ] 杀掉 App 重开，收藏还在；飞行模式下收藏列表仍能显示标题与来源

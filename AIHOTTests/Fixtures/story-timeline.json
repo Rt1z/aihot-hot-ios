@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "story": {
+    "publicId": "5b1f0c7a-2d84-4e6f-9a30-7c5e1b8d2f44",
+    "title": "示例：一条跨 10 小时、中间断档 3 小时的报道流",
+    "status": "active",
+    "sourceCount": 9,
+    "reportCount": 43,
+    "firstReportAt": "2026-10-11T22:05:00.000Z",
+    "latestAt": "2026-10-12T07:50:00.000Z",
+    "latest": "第 15 条报道",
+    "digest": "这份夹具是给「报道节奏」用的，刻意安排成：\n\n北京时间 06:00–08:59 各有 2 条，09:00–11:59 一条都没有，12:00 集中 3 条，13:00 起回落。\n\n另外塞了一条没有 publishedAt 的报道，用来确认它被排除在图表之外、但仍留在文字时间线里。",
+    "digestUpdatedAt": "2026-10-12T08:00:00.000Z",
+    "links": {
+      "aihot": "https://aihot.news/story/5b1f0c7a-2d84-4e6f-9a30-7c5e1b8d2f44"
+    },
+    "reports": [
+      {
+        "id": "tl15",
+        "title": "报道 15（北京时间 15:50）",
+        "summary": "最新的一条。",
+        "source": { "name": "示例晚报", "firstParty": false },
+        "publishedAt": "2026-10-12T07:50:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl15",
+          "original": "https://example.com/15"
+        }
+      },
+      {
+        "id": "tl14",
+        "title": "报道 14（北京时间 15:10）",
+        "summary": "同一小时内第二条。",
+        "source": { "name": "示例科技", "firstParty": false },
+        "publishedAt": "2026-10-12T07:10:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl14",
+          "original": "https://example.com/14"
+        }
+      },
+      {
+        "id": "tl13",
+        "title": "报道 13（北京时间 14:25）",
+        "summary": "这一小时只有一条。",
+        "source": { "name": "示例日报", "firstParty": false },
+        "publishedAt": "2026-10-12T06:25:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl13",
+          "original": "https://example.com/13"
+        }
+      },
+      {
+        "id": "tl12",
+        "title": "报道 12（北京时间 13:40）",
+        "summary": "峰后一小时的第一条。",
+        "source": { "name": "示例观察", "firstParty": false },
+        "publishedAt": "2026-10-12T05:40:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl12",
+          "original": "https://example.com/12"
+        }
+      },
+      {
+        "id": "tl11",
+        "title": "报道 11（北京时间 13:05）",
+        "summary": "峰后一小时。",
+        "source": { "name": "示例观察", "firstParty": false },
+        "publishedAt": "2026-10-12T05:05:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl11",
+          "original": "https://example.com/11"
+        }
+      },
+      {
+        "id": "tl10",
+        "title": "报道 10（北京时间 12:50）",
+        "summary": "峰值那一小时的第三条。",
+        "source": { "name": "示例通讯社", "firstParty": false },
+        "publishedAt": "2026-10-12T04:50:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl10",
+          "original": "https://example.com/10"
+        }
+      },
+      {
+        "id": "tl09",
+        "title": "报道 09（北京时间 12:35）",
+        "summary": "峰值那一小时的第一条。",
+        "source": { "name": "示例通讯社", "firstParty": false },
+        "publishedAt": "2026-10-12T04:35:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl09",
+          "original": "https://example.com/09"
+        }
+      },
+      {
+        "id": "tl08b",
+        "title": "报道 08b（北京时间 12:10）",
+        "summary": "峰值那一小时的第一条。",
+        "source": { "name": "示例通讯社", "firstParty": false },
+        "publishedAt": "2026-10-12T04:10:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl08b",
+          "original": "https://example.com/08b"
+        }
+      },
+      {
+        "id": "tl08",
+        "title": "报道 08（没有发布时间）",
+        "summary": "这条没有 publishedAt：必须被排除在图外，但仍是时间线里的一行。",
+        "source": { "name": "示例小站", "firstParty": false },
+        "publishedAt": null,
+        "links": {
+          "aihot": "https://aihot.news/items/tl08",
+          "original": "https://example.com/08"
+        }
+      },
+      {
+        "id": "tl07",
+        "title": "报道 07（北京时间 08:45）",
+        "summary": "断档前的最后一条。",
+        "source": { "name": "示例早报", "firstParty": false },
+        "publishedAt": "2026-10-12T00:45:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl07",
+          "original": "https://example.com/07"
+        }
+      },
+      {
+        "id": "tl06",
+        "title": "报道 06（北京时间 08:20）",
+        "summary": "断档前。",
+        "source": { "name": "示例早报", "firstParty": false },
+        "publishedAt": "2026-10-12T00:20:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl06",
+          "original": "https://example.com/06"
+        }
+      },
+      {
+        "id": "tl05",
+        "title": "报道 05（北京时间 07:55）",
+        "summary": "第三条。",
+        "source": { "name": "示例科技", "firstParty": false },
+        "publishedAt": "2026-10-11T23:55:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl05",
+          "original": "https://example.com/05"
+        }
+      },
+      {
+        "id": "tl04",
+        "title": "报道 04（北京时间 07:10）",
+        "summary": "第二条。",
+        "source": { "name": "示例科技", "firstParty": false },
+        "publishedAt": "2026-10-11T23:10:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl04",
+          "original": "https://example.com/04"
+        }
+      },
+      {
+        "id": "tl03",
+        "title": "报道 03（北京时间 06:40）",
+        "summary": "首条之后半小时。",
+        "source": { "name": "示例晨报", "firstParty": false },
+        "publishedAt": "2026-10-11T22:40:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl03",
+          "original": "https://example.com/03"
+        }
+      },
+      {
+        "id": "tl02",
+        "title": "报道 02（北京时间 06:05）",
+        "summary": "最早的一条，桶起点落在 06:00。",
+        "source": { "name": "示例晨报", "firstParty": false },
+        "publishedAt": "2026-10-11T22:05:00.000Z",
+        "links": {
+          "aihot": "https://aihot.news/items/tl02",
+          "original": "https://example.com/02"
+        }
+      }
+    ],
+    "storyline": [],
+    "related": []
+  }
+}
