@@ -56,6 +56,45 @@ final class EnricherTests: XCTestCase {
 
     // MARK: - HTML → 文本
 
+    /// 临时诊断：定位 stripElement 为什么没剔除 script/style。用完即删。
+    func testTemporaryStripDiagnostics() throws {
+        let html = try Fixture.text("hot-page", ext: "html")
+        print("DIAG fixture len=\(html.count) hasScriptTag=\(html.contains("<script")) hasStyleTag=\(html.contains("<style"))")
+
+        let afterScript = HTMLTextExtractor.stripElement(html, tag: "script")
+        print("DIAG stripElement(script) removed=\(!afterScript.contains("window.__NEXT_DATA__"))")
+
+        let afterStyle = HTMLTextExtractor.stripElement(html, tag: "style")
+        print("DIAG stripElement(style) removed=\(!afterStyle.contains("font-weight"))")
+
+        let withWordBoundary = RegexUtil.replace(
+            "<script\\b[^>]*>.*?</script>",
+            in: html,
+            with: "\n",
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        )
+        print("DIAG probe-with-\\b removed=\(!withWordBoundary.contains("window.__NEXT_DATA__"))")
+
+        let withoutWordBoundary = RegexUtil.replace(
+            "<script[^>]*>.*?</script>",
+            in: html,
+            with: "\n",
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        )
+        print("DIAG probe-without-\\b removed=\(!withoutWordBoundary.contains("window.__NEXT_DATA__"))")
+
+        let greedy = RegexUtil.replace(
+            "<script.*</script>",
+            in: html,
+            with: "\n",
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        )
+        print("DIAG probe-greedy removed=\(!greedy.contains("window.__NEXT_DATA__"))")
+
+        let text = HTMLTextExtractor.plainText(from: html)
+        print("DIAG extracted-head=<\(text.prefix(240))>")
+    }
+
     func testExtractsPlainTextFromHTML() throws {
         let html = try Fixture.text("hot-page", ext: "html")
         let text = HTMLTextExtractor.plainText(from: html)
