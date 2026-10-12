@@ -86,12 +86,16 @@ enum HTMLTextExtractor {
     }
 
     static func stripElement(_ html: String, tag: String) -> String {
-        RegexUtil.replace(
-            "<\(tag)\\b[^>]*>.*?</\\(tag)>",
+        // TEMP DIAG
+        let diagPattern = "<\(tag)\\b[^>]*>.*?</\(tag)>"
+        let diagResult = RegexUtil.replace(
+            diagPattern,
             in: html,
             with: "\n",
             options: [.caseInsensitive, .dotMatchesLineSeparators]
         )
+        print("DIAG strip tag=" + tag + " patternBytes=" + String(describing: Array(diagPattern.utf8)) + " inLen=" + String(html.count) + " outLen=" + String(diagResult.count) + " removed=" + String(!diagResult.contains("window.__NEXT_DATA__")))
+        return diagResult
     }
 
     static func decodeEntities(_ input: String) -> String {
