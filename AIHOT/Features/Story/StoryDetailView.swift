@@ -214,10 +214,14 @@ struct StoryDetailView: View {
     private var actionButtons: some View {
         VStack(spacing: 8) {
             if let link = item.links?.aihot ?? model.story?.links?.aihot, let url = URL(string: link) {
-                LinkButton(title: "在 AIHOT 阅读全文", systemImage: "text.book.closed", url: url) { safariURL = url }
+                LinkButton(title: "在 AIHOT 阅读全文", systemImage: "text.book.closed", url: url) { url in
+                    safariURL = url
+                }
             }
             if let link = item.links?.original, let url = URL(string: link) {
-                LinkButton(title: "打开原文", systemImage: "arrow.up.right.square", url: url) { safariURL = url }
+                LinkButton(title: "打开原文", systemImage: "arrow.up.right.square", url: url) { url in
+                    safariURL = url
+                }
             }
         }
         .padding(.top, 4)
