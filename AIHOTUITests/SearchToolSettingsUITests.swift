@@ -30,15 +30,26 @@ final class SearchToolSettingsUITests: XCTestCase {
         reveal(app.switches["search-toggle-serpapi"])
     }
 
-    /// 把元素滚到可点区域（表单下半截的行初始不在屏内）。
-    private func reveal(_ element: XCUIElement, maxSwipes: Int = 8) {
-        XCTAssertTrue(element.waitForExistence(timeout: 10), "元素不存在：\(element)")
-        var swipes = 0
-        while !element.isHittable && swipes < maxSwipes {
-            app.swipeUp()
-            swipes += 1
+    /// 把元素滚到可点区域。**先滑、滑到存在为止**：Form 是懒加载（UITableView），
+    /// 屏外的行在 AX 树里根本不存在 —— 先 waitForExistence 再滑是先有鸡还是先有蛋，
+    /// 必然 10 秒超时（首次 CI 红就是这么来的）。元素已在树里但被顶出上方时往回滑。
+    private func reveal(_ element: XCUIElement, maxSwipes: Int = 12) {
+        var moves = 0
+        while moves < maxSwipes && !(element.exists && element.isHittable) {
+            if element.exists && element.frame.minY < 0 {
+                app.swipeDown()
+            } else {
+                app.swipeUp()
+            }
+            moves += 1
+            // 等懒加载把新行建出来再查询，否则滑完立刻查会读到上一拍
+            Thread.sleep(forTimeInterval: 0.3)
         }
-        XCTAssertTrue(element.isHittable, "滚了 \(swipes) 次仍点不到：\(element)")
+        XCTAssertTrue(
+            element.exists,
+            "滑了 \(moves) 次元素仍不存在（identifier 没挂上？）：\(element)\n--- AX 树 ---\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(element.isHittable, "存在但滑了 \(moves) 次仍点不到：\(element)")
     }
 
     /// UISwitch 的 value 在不同 iOS 版本上可能是 Bool，也可能是 "1"/"0" 字符串，两种都认。
@@ -64,6 +75,9 @@ final class SearchToolSettingsUITests: XCTestCase {
         app.buttons["search-up-serpapi"].tap()
         // 等 Form 重排动画落定再比坐标
         Thread.sleep(forTimeInterval: 0.8)
+        // 换位后两行都可能被顶出屏外（一个上一个下），比坐标前先把两个都滚回来
+        reveal(serpapi)
+        reveal(tavily)
         XCTAssertLessThan(
             serpapi.frame.minY, tavily.frame.minY,
             "↑ 没有把 SerpAPI 换到 Tavily 上面 —— 按钮没生效，或又被 Form 行共享点击吃掉了"
