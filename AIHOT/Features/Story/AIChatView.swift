@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// 详情页的「AI 对话」弹窗。
 ///
@@ -13,6 +14,8 @@ struct AIChatView: View {
 
     @StateObject private var model: AIChatModel
     @Environment(\.dismiss) private var dismiss
+    /// 复制按钮的瞬时反馈（与「复制诊断信息」同款：点完图标短暂变成 ✓）。
+    @State private var copiedAnswer = false
 
     /// sessionKey 用 `item.id`（HotTopic 的 id，非可选）：同一条新闻的对话存在
     /// 同一个 key 下，杀掉 App 重开还在。autoclosure 捕获的是 **init 参数** `item`，
@@ -36,6 +39,17 @@ struct AIChatView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button("关闭") { dismiss() }
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        // 复制最近一条 AI 回答（正文 + 标题 + 出处链接，见 ChatAnswerCopy）
+                        Button {
+                            copyAnswer()
+                        } label: {
+                            Image(systemName: copiedAnswer ? "checkmark" : "doc.on.doc")
+                        }
+                        .disabled(lastAssistantAnswer == nil)
+                        .accessibilityLabel("复制回答")
+                        .accessibilityIdentifier("chat-copy-answer")
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
@@ -246,5 +260,24 @@ struct AIChatView: View {
 
     private func send() {
         model.send(item: item, story: story, prefetchedDigest: prefetchedDigest)
+    }
+
+    /// 最近一条非空的 AI 回复 —— 复制按钮复制的就是它（多轮对话里最新那句回答）。
+    private var lastAssistantAnswer: String? {
+        model.messages
+            .last { $0.role == .assistant && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?
+            .text
+    }
+
+    private func copyAnswer() {
+        guard let answer = lastAssistantAnswer else { return }
+        // 原文链接优先；只有 aihot 页链接的条目退回它，标题始终有
+        let link = item.links?.original ?? item.links?.aihot
+        UIPasteboard.general.string = ChatAnswerCopy.text(answer: answer, title: item.title, link: link)
+        copiedAnswer = true
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            copiedAnswer = false
+        }
     }
 }

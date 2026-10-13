@@ -136,13 +136,7 @@ final class AIChatModel: ObservableObject {
         for provider in AppSettings.SearchToolProvider.allCases {
             let key = secrets.searchKey(for: provider)
             keys[provider] = key
-            switch provider {
-            case .anySearch: runners[provider] = AnySearchToolRunner(apiKey: key)
-            case .tavily: runners[provider] = TavilyToolRunner(apiKey: key)
-            case .serpapi: runners[provider] = SerpAPIToolRunner(apiKey: key)
-            case .exa: runners[provider] = ExaToolRunner(apiKey: key)
-            case .serper: runners[provider] = SerperToolRunner(apiKey: key)
-            }
+            runners[provider] = SearchToolChain.makeRunner(for: provider, apiKey: key)
         }
         return SearchToolChain(
             order: AppSettings.searchToolOrder,

@@ -68,12 +68,32 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/AIHOT.app/AIHOT"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
+  AIHOTUITests:
+    # UI 测试：另起一个进程驱动 App 本身（不宿主、不 @testable）。
+    # 这里钉的是单测覆盖不到的那类 bug —— 比如「Form 行里两个按钮共享点击区域，
+    # ↑↓ 点了没反应」就是先上真机才发现的；有这两条用例，同类问题推送时就会红。
+    # 用例通过启动参数 uitests-reset-search-settings 重置搜索工具设置（见 AIHOTApp.init）。
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    testTargetName: AIHOT
+    sources:
+      - path: AIHOTUITests
+    dependencies:
+      - target: AIHOT
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.local.aihot.hot.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: minimal
+
 schemes:
   AIHOT:
     build:
       targets:
         AIHOT: all
         AIHOTTests: [test]
+        AIHOTUITests: [test]
     run:
       config: Debug
     test:
@@ -81,5 +101,6 @@ schemes:
       gatherCoverageData: false
       targets:
         - AIHOTTests
+        - AIHOTUITests
     archive:
       config: Release

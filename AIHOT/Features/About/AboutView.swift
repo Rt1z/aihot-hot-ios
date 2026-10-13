@@ -45,6 +45,8 @@ struct AboutView: View {
     @State private var searchDisabled: Set<AppSettings.SearchToolProvider> = AppSettings.searchToolDisabled
     @State private var searchKeyDrafts: [AppSettings.SearchToolProvider: String] = [:]
     @State private var searchFellBack: Set<AppSettings.SearchToolProvider> = []
+    /// 「测一下」的行内结果，按家记录；改 Key 草稿即清（避免旧结果误导）。
+    @State private var searchProbes: [AppSettings.SearchToolProvider: KeyProbe] = [:]
 
     @State private var isTestingConnection = false
     @State private var testResult: String?
@@ -182,6 +184,7 @@ struct AboutView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("顺序即优先级：从上往下逐家尝试，一家失败（Key 无效、超限、网络问题）自动换下一家；全部失败时报第一家的错误，先查那家的 Key 或开关。开关与顺序即点即存，Key 要点「保存密钥」。")
                     Text("必填 Key 没填的家不参与（AnySearch 留空即用匿名）；SerpAPI、Serper 只能搜索，读取原文会自动跳过它们。")
+                    Text("「测一下」用当前输入框里的 Key 发一次最小搜索，会消耗该家一次搜索额度（AnySearch 匿名免费）；Key 要点「保存密钥」才参与对话。")
                 }
             }
 
@@ -340,6 +343,30 @@ struct AboutView: View {
         AppSettings.searchToolOrder = searchOrder
     }
 
+    /// 用**当前输入框里的 Key**（不是钥匙串里那份）发一次最小搜索 ——
+    /// 保存前就能验 Key。必填且为空时一个请求都不发（与链的过滤同口径）。
+    /// 成功只回「通了」，失败贴 runner 原文（各家错误文案自带「哪家、为什么」）。
+    private func probeSearchKey(_ provider: SearchToolProvider) async {
+        guard searchProbes[provider] != .running else { return }
+        let draft = (searchKeyDrafts[provider] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !provider.requiresKey || !draft.isEmpty else {
+            searchProbes[provider] = .failed("还没填 Key —— 填好再测")
+            return
+        }
+        searchProbes[provider] = .running
+        let runner = SearchToolChain.makeRunner(for: provider, apiKey: draft)
+        let call = AIChatToolCall(
+            index: 0, id: "key-probe", name: AIChatToolName.webSearch,
+            argumentsJSON: #"{"query":"ping"}"#
+        )
+        let result = await runner.execute(call: call)
+        if result.isError {
+            searchProbes[provider] = .failed(result.text)
+        } else {
+            searchProbes[provider] = .ok
+        }
+    }
+
     /// 行内 Key 状态提示 —— **显式披露「静默跳过」**：没 Key 的家看起来一切正常、
     /// 就是永远轮不到它，用户不点开永远不知道。
     private func searchKeyHint(for provider: SearchToolProvider) -> (text: String, isWarning: Bool) {
@@ -353,17 +380,26 @@ struct AboutView: View {
         return ("已填 Key", false)
     }
 
-    /// 一块 = 一个 Form 行：开关 + 排序箭头，能力标签 + Key 状态，Key 输入框。
+    /// 一家的「测一下」状态。错误文案就是 runner 回传的原文（点名哪家、为什么）。
+    private enum KeyProbe: Equatable {
+        case running
+        case ok
+        case failed(String)
+    }
+
+    /// 一块 = 一个 Form 行：开关 + 排序箭头，能力标签 + Key 状态，Key 输入框 + 测一下。
     private func searchProviderBlock(_ provider: SearchToolProvider) -> some View {
         let hint = searchKeyHint(for: provider)
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Toggle(provider.title, isOn: searchEnabledBinding(for: provider))
                     .font(.system(size: 14))
+                    .accessibilityIdentifier("search-toggle-\(provider.rawValue)")
                 Spacer()
                 // ↑↓ 必须各自 .plain：Form 行里不带样式的按钮共享点击区域，
                 // 点一下会把两个动作都触发 —— 中间行先上再下正好抵消，看着就是「按了没反应」
                 // （第一/末行不抵消是因为一侧 disabled，所以只有边上能动，更容易误判成「没 bug」）
+                // 同行的「测一下」也必须 .plain，同一规则。
                 HStack(spacing: 16) {
                     Button {
                         moveSearchTool(provider, by: -1)
@@ -372,6 +408,7 @@ struct AboutView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(provider == searchOrder.first)
+                    .accessibilityIdentifier("search-up-\(provider.rawValue)")
                     Button {
                         moveSearchTool(provider, by: 1)
                     } label: {
@@ -379,6 +416,7 @@ struct AboutView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(provider == searchOrder.last)
+                    .accessibilityIdentifier("search-down-\(provider.rawValue)")
                 }
                 .font(.system(size: 13))
                 .foregroundColor(Theme.textTertiary)
@@ -401,6 +439,38 @@ struct AboutView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .keyboardType(.asciiCapable)
+            // 改了 Key 就清掉旧结果，别让「✓ 通了」继续骗人
+            .onChange(of: searchKeyDrafts[provider] ?? "") { _ in
+                searchProbes[provider] = nil
+            }
+
+            let probe = searchProbes[provider]
+            HStack(spacing: 8) {
+                if probe == .running {
+                    ProgressView().scaleEffect(0.6)
+                }
+                Button(probe == .running ? "测试中…" : "测一下") {
+                    Task { await probeSearchKey(provider) }
+                }
+                .font(.system(size: 12))
+                .foregroundColor(Theme.accent)
+                .buttonStyle(.plain)
+                .disabled(probe == .running)
+                .accessibilityIdentifier("search-probe-\(provider.rawValue)")
+                if probe == .ok {
+                    Text("✓ 通了")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.textSecondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            // 失败原因（runner 原文，点名哪家、为什么）单独占一行才放得下
+            if case .failed(let message)? = probe {
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.breakout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

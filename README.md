@@ -168,6 +168,8 @@
 几个要知道的点：
 
 - **先点「测试连接」**：它只拉一次模型列表、不产生生成计费，并顺带核对你填的模型名在不在里面。
+- **每家旁边都有「测一下」**：用**当前输入框里的 Key** 发一次最小搜索（不点「保存密钥」也能验），
+  通了显示「✓ 通了」，不通贴出该家的错误原话。会消耗该家一次搜索额度（AnySearch 匿名免费）。
 - **「协议」和「接口地址」必须配套** —— 这是最容易踩的一处：同一家服务商的两条协议**地址不一样**。
   以 DeepSeek 为例，OpenAI 兼容填 `https://api.deepseek.com`（带不带 `/v1` 都行），
   Anthropic 兼容才填 `https://api.deepseek.com/anthropic`。填反了 App 不会含糊其辞：它会
@@ -182,6 +184,8 @@
 - **对话按新闻自动保存**：同一条新闻的对话存在同一个会话里，杀掉 App 重开还在；
   按最后更新**最多保留最近 50 条**，超出淘汰最旧（设置页里写明）。
   弹窗里的垃圾桶按钮只清**当前这条**；全清是「设置 → 对话记录 → 清除对话记录」（会先弹确认）。
+- **回答可以一键复制**：弹窗右上角的复制按钮把最近一条 AI 回答连同**新闻标题与原文链接**
+  一起放进剪贴板 —— 粘到哪都带着出处；没有回答时按钮置灰。
 - **费用**：模型那边按你所用服务商计费；搜索工具每搜一次、每读一个网页也算一次调用
   （AnySearch 匿名有免费额度；Tavily / SerpAPI / Exa / Serper 按你自己账号的额度计）。
   所以模型在一轮里连搜三次，就是三次搜索的量。
@@ -196,7 +200,7 @@
 
 ```
 project.yml                 XcodeGen 工程定义（改包名/显示名/版本只改这里）
-.github/workflows/ios.yml   云编译：跑单测 + 出两个 IPA + 上传 artifact
+.github/workflows/ios.yml   云编译：跑单测与 UI 测试 + 出两个 IPA + 上传 artifact
 tools/make_appicon.py       现场生成 1024 图标（有 Pillow 用 Pillow，没有用标准库）
 tools/preflight.py          构建前自检：JSON / plist / 路径引用 / Python 语法
 tools/logic_tests.py        纯逻辑镜像测试：用 Python 把解析/ID/时间逻辑跑一遍
@@ -216,8 +220,10 @@ AIHOT/
                             AIChatConfig、AIChatRequestBuilder、AIChatNewsContext、
                             AIChatSecretStore（钥匙串）、AIChatAPI（AI 对话）、
                             AnySearchAPI（联网搜索 / 读网页）、TavilyAPI（联网搜索另一家）、
-                            SearchToolChain（五家按用户顺序回退）、SerpAPI / ExaAPI / SerperAPI（另外三家）、
-                            ChatHistoryStore（对话按新闻落盘，Application Support）
+                            SearchToolChain（五家按用户顺序回退 + 单家 runner 工厂）、
+                            SerpAPI / ExaAPI / SerperAPI（另外三家）、
+                            ChatHistoryStore（对话按新闻落盘，Application Support）、
+                            ChatAnswerCopy（复制回答的文本拼装：正文 + 标题 + 出处链接）
   Features/Common/          SafariView（SFSafariViewController，可选阅读器模式 + WebLinkSheet）
   Features/Hot/             榜单页、大卡、紧凑行、RelativeTime
   Features/Favorites/       收藏列表、收藏行
@@ -225,6 +231,7 @@ AIHOT/
                             ReportTimelineChart（Swift Charts 柱状图）
   Features/About/           设置页（原「关于」：外观/AI 对话/数据/缓存/收藏/对话记录/排查/署名）
 AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解析/网页解析/报道节奏）
+AIHOTUITests/               UI 测试（设置页换序与开关持久化；用启动参数重置搜索设置）
 ```
 
 ## 6. 改点什么
@@ -303,6 +310,7 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 - [ ] 问一个需要联网的问题（如「这条有后续吗」），状态行出现「正在联网搜索：…」，回答里带来源
 - [ ] 把 AnySearch Key 留空也能搜（匿名）
 - [ ] 搜索工具调顺序（↑↓）、拨开关后杀掉 App 重开：顺序与开关都还在；升级首启时旧的单选值排第一、其余全默认启用
+- [ ] 搜索工具每行「测一下」：Key 正确显示「✓ 通了」；Key 填错贴出该家的错误原话；必填 Key 为空时提示「还没填 Key —— 填好再测」且不发请求；改 Key 后旧结果自动清掉
 - [ ] 第一家 Key 填错、第二家正确：问一个需要联网的问题，第二家出结果（**回退真实发生**）；把两家都弄失败，报错点名的是**排第一**那家、后几家的原话不出现
 - [ ] 问一个需要打开网页的问题：SerpAPI / Serper 即使排在最前也不被调用（仅搜索的家自动跳过）；只剩它们时给「没有能读网页的工具…」
 - [ ] 设置行内提示各就各位：停用的显示「已停用」，必填没 Key 的显示「未填 Key，暂不参与」（橙色），AnySearch 显示「留空即用匿名」
@@ -310,3 +318,4 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 - [ ] 生成中点「停止」能立刻停下，而且**不**弹错误条
 - [ ] 问一轮 → 杀掉 App → 重开，同一条新闻的对话还在；换一条新闻是另一场对话（各存各的）
 - [ ] 弹窗垃圾桶只清当前这一条；「设置 → 对话记录 → 清除对话记录」确认后全部清空；「清除本地缓存」之后对话与收藏都还在
+- [ ] 有回答后弹窗右上角复制按钮可点，粘贴出来是「回答 + ——《新闻标题》 + 原文链接」；没有回答时按钮置灰

@@ -284,4 +284,15 @@ final class SearchToolChainTests: XCTestCase {
         XCTAssertEqual(AppSettings.normalizeSearchToolDisabled(stored: ["serpapi", "bogus", "serpapi"]),
                        [.serpapi], "丢未知、去重")
     }
+
+    // MARK: - runner 工厂
+
+    /// 发送用的回退链与设置页「测一下」共用的 switch —— 一家都不能配错 runner。
+    func testMakeRunnerMapsEveryProviderToItsOwnRunner() {
+        XCTAssertTrue(SearchToolChain.makeRunner(for: .anySearch, apiKey: "k") is AnySearchToolRunner)
+        XCTAssertTrue(SearchToolChain.makeRunner(for: .tavily, apiKey: "k") is TavilyToolRunner)
+        XCTAssertTrue(SearchToolChain.makeRunner(for: .serpapi, apiKey: "k") is SerpAPIToolRunner)
+        XCTAssertTrue(SearchToolChain.makeRunner(for: .exa, apiKey: "k") is ExaToolRunner)
+        XCTAssertTrue(SearchToolChain.makeRunner(for: .serper, apiKey: "k") is SerperToolRunner)
+    }
 }

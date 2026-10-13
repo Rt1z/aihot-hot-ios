@@ -35,6 +35,16 @@ struct RootView: View {
 
 @main
 struct AIHOTApp: App {
+
+    init() {
+        // UI 测试钩子：带这个启动参数就重置搜索工具的顺序/开关，让用例从确定
+        // 状态出发（用例**首次**启动传，验证持久化的第二次启动不传）。
+        // 只有 Xcode / 模拟器能塞启动参数，AltStore 正常安装使用永远见不到这个分支。
+        if ProcessInfo.processInfo.arguments.contains("uitests-reset-search-settings") {
+            AppSettings.resetSearchToolsForUITests()
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

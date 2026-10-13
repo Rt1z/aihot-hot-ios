@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   test:
-    name: Unit tests
+    name: Tests
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -64,12 +64,13 @@ jobs:
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           echo "Using simulator: $UDID"
 
-      - name: Run unit tests
+      - name: Run tests (unit + UI)
         run: |
           set -o pipefail
           mkdir -p build
           # 模拟器构建不需要证书，这里刻意不传 CODE_SIGNING_* 覆盖，
           # 走 Xcode 对模拟器的默认签名方式（最标准的调用）。
+          # scheme 的 test action 里有 AIHOTTests 与 AIHOTUITests，两条都会跑。
           xcodebuild test \
             -project AIHOT.xcodeproj \
             -scheme AIHOT \

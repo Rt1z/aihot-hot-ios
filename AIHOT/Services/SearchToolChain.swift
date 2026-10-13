@@ -55,6 +55,21 @@ struct SearchToolChain: AIChatToolExecuting {
             + "到「设置 → AI 对话 → 搜索工具」启用一家并填好 Key；AnySearch 留空 Key 即用匿名。"
     }
 
+    /// 单家 runner 工厂：发送用的回退链（`AIChatModel.makeSearchChain`）与
+    /// 设置页的「测一下」共用这一个 switch —— 新增提供方时两处都不会漏。
+    static func makeRunner(
+        for provider: AppSettings.SearchToolProvider,
+        apiKey: String
+    ) -> any AIChatToolExecuting {
+        switch provider {
+        case .anySearch: return AnySearchToolRunner(apiKey: apiKey)
+        case .tavily: return TavilyToolRunner(apiKey: apiKey)
+        case .serpapi: return SerpAPIToolRunner(apiKey: apiKey)
+        case .exa: return ExaToolRunner(apiKey: apiKey)
+        case .serper: return SerperToolRunner(apiKey: apiKey)
+        }
+    }
+
     func execute(call: AIChatToolCall) async -> (text: String, isError: Bool) {
         // 结构短路：不查任何提供方（各 runner 自己的校验保留为防御）
         guard let name = call.name else {

@@ -175,6 +175,14 @@ enum AppSettings {
         }
     }
 
+    /// **仅给 UI 测试用**：把搜索工具的顺序/开关恢复默认（`AIHOTApp.init` 里
+    /// 的启动参数钩子调用）。只有 Xcode / 模拟器能塞启动参数，AltStore 正常
+    /// 安装使用永远走不到这里。刻意不动 Key —— 用例不碰钥匙串。
+    static func resetSearchToolsForUITests() {
+        UserDefaults.standard.removeObject(forKey: aiChatSearchToolOrderKey)
+        UserDefaults.standard.removeObject(forKey: aiChatSearchToolDisabledKey)
+    }
+
     /// 按当前设置解析出一份可用配置；没配好（或没填 Key）返回 nil。
     static func currentAIChatConfig() -> AIChatConfig? {
         let defaults = UserDefaults.standard
