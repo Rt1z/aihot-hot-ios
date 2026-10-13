@@ -361,18 +361,23 @@ struct AboutView: View {
                 Toggle(provider.title, isOn: searchEnabledBinding(for: provider))
                     .font(.system(size: 14))
                 Spacer()
+                // ↑↓ 必须各自 .plain：Form 行里不带样式的按钮共享点击区域，
+                // 点一下会把两个动作都触发 —— 中间行先上再下正好抵消，看着就是「按了没反应」
+                // （第一/末行不抵消是因为一侧 disabled，所以只有边上能动，更容易误判成「没 bug」）
                 HStack(spacing: 16) {
                     Button {
                         moveSearchTool(provider, by: -1)
                     } label: {
                         Image(systemName: "chevron.up")
                     }
+                    .buttonStyle(.plain)
                     .disabled(provider == searchOrder.first)
                     Button {
                         moveSearchTool(provider, by: 1)
                     } label: {
                         Image(systemName: "chevron.down")
                     }
+                    .buttonStyle(.plain)
                     .disabled(provider == searchOrder.last)
                 }
                 .font(.system(size: 13))
