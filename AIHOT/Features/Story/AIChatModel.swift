@@ -121,6 +121,17 @@ final class AIChatModel: ObservableObject {
         var toolCalls: [AIChatToolCall] = []
         var stopReason: String?
         var sawDone = false
+
+        // 下面四项只为一件事：一轮什么都没认出来时，能说清**到底收到了什么**。
+        // 侧载的 App 没法挂调试器，用户能带回来的只有界面上那行字。
+        /// 一共切出几帧。
+        var frameCount = 0
+        /// 一共认出几个事件。
+        var recognizedEventCount = 0
+        /// 第一行非空原文 —— 万一对方回的根本不是 SSE（有些中转站会谎报 Content-Type）。
+        var firstRawLine: String?
+        /// 认不出来的 data 原文，最多留 5 段，用来判断「是不是另一条协议的流」。
+        var unrecognizedSamples: [String] = []
     }
 
     private func run(
@@ -150,6 +161,11 @@ final class AIChatModel: ObservableObject {
                     // 中转站没走流式：一次性给完整回答，也就没有工具可跑
                     append(text)
                     flushNow()
+                    if text.isEmpty {
+                        // 走这条分支却一个字都没有，说明整段响应也没解析出正文。
+                        // 不说的话界面上什么都没有、也不报错（空气泡被删掉了）。
+                        notice = "接口没有按流式返回，整段响应里也找不到正文。请到「设置 → AI 对话」核对接口地址与协议是否配套。"
+                    }
                     return
 
                 case .stream(let bytes):
@@ -159,7 +175,12 @@ final class AIChatModel: ObservableObject {
                 // 只要有工具调用就跑 —— 不看 stop_reason：有些中转站给了
                 // tool_calls 却把 finish_reason 报成 "stop"。
                 guard !round.toolCalls.isEmpty else {
-                    applyStopReason(round.stopReason, sawDone: round.sawDone)
+                    applyStopReason(
+                        round.stopReason,
+                        sawDone: round.sawDone,
+                        round: round,
+                        chatProtocol: config.chatProtocol
+                    )
                     return
                 }
 
@@ -202,16 +223,30 @@ final class AIChatModel: ObservableObject {
 
         for try await line in bytes.lines {
             try Task.checkCancellation()
+            record(line: line, round: &round)
             guard let frame = reader.consume(line: line) else { continue }
-            try process(decode(frame, chatProtocol: chatProtocol), round: &round, accumulator: &accumulator)
+            let events = decode(frame, chatProtocol: chatProtocol, round: &round)
+            try process(events, round: &round, accumulator: &accumulator)
         }
         if let frame = reader.flush() {
-            try process(decode(frame, chatProtocol: chatProtocol), round: &round, accumulator: &accumulator)
+            let events = decode(frame, chatProtocol: chatProtocol, round: &round)
+            try process(events, round: &round, accumulator: &accumulator)
         }
 
         flushNow()
         round.toolCalls = accumulator.result
         return round
+    }
+
+    /// 边读边把「收到了什么」记进 `round`，只用于事后说清失败原因。
+    ///
+    /// 这里不做判断、不影响流程，纯粹留证据：侧载的 App 没法挂调试器，
+    /// 用户能带回来的只有界面上那行字（见 `truncationNotice`）。
+    private func record(line: String, round: inout StreamedRound) {
+        // 第一行非空原文：万一对方回的根本不是 SSE，这行就是全部线索
+        if round.firstRawLine == nil, !line.isEmpty {
+            round.firstRawLine = Self.excerpt(line)
+        }
     }
 
     private func process(
@@ -240,11 +275,38 @@ final class AIChatModel: ObservableObject {
         }
     }
 
-    private func decode(_ frame: SSEFrame, chatProtocol: AIChatProtocol) -> [AIChatEvent] {
+    private func decode(
+        _ frame: SSEFrame,
+        chatProtocol: AIChatProtocol,
+        round: inout StreamedRound
+    ) -> [AIChatEvent] {
+        let events = Self.decode(frame, chatProtocol: chatProtocol)
+        round.frameCount += 1
+        round.recognizedEventCount += events.count
+        // 留几段认不出来的原文：既用来判断「是不是另一条协议的流」，
+        // 也在什么都认不出来时原样贴给用户看。
+        //
+        // 留 5 段而不是 1 段，是因为真实流的头几帧本身可能是「结构性」的
+        // （Anthropic 的 message_start、OpenAI 的 role 分片），单独看都认不出来，
+        // 要往后一点才出现能认的帧。用夹具把两个方向都钉住了（见 AIChatModelTests）。
+        if events.isEmpty, !frame.data.isEmpty, round.unrecognizedSamples.count < 5 {
+            round.unrecognizedSamples.append(Self.excerpt(frame.data))
+        }
+        return events
+    }
+
+    private static func decode(_ frame: SSEFrame, chatProtocol: AIChatProtocol) -> [AIChatEvent] {
         switch chatProtocol {
         case .anthropicMessages: return AnthropicSSEDecoder.decode(frame)
         case .openAICompatible: return OpenAISSSEDecoder.decode(frame)
         }
+    }
+
+    /// 诊断用短摘要：压成一行，最多 200 字。
+    private static func excerpt(_ text: String) -> String {
+        let oneLine = text.replacingOccurrences(of: "\n", with: " ")
+        guard oneLine.count > 200 else { return oneLine }
+        return String(oneLine.prefix(200)) + "…"
     }
 
     /// 跑模型要的工具。AnySearch 的 Key 是可选的（不填就匿名）。
@@ -280,7 +342,12 @@ final class AIChatModel: ObservableObject {
 
     /// 结束原因要**先于**看正文判断：被拒绝时正文是空的，
     /// 不说明的话界面上就是一个什么都没有的气泡。
-    private func applyStopReason(_ reason: String?, sawDone: Bool) {
+    private func applyStopReason(
+        _ reason: String?,
+        sawDone: Bool,
+        round: StreamedRound,
+        chatProtocol: AIChatProtocol
+    ) {
         switch reason {
         case "refusal":
             notice = "模型拒绝回答这个问题。"
@@ -293,9 +360,70 @@ final class AIChatModel: ObservableObject {
             // 才算截断 —— 有些中转站不发 `data: [DONE]`，只给 finish_reason，
             // 那种情况报「连接中断」是误报。
             if reason == nil && !sawDone {
-                notice = "连接提前中断，回复可能不完整。"
+                notice = Self.truncationNotice(
+                    frameCount: round.frameCount,
+                    recognizedEventCount: round.recognizedEventCount,
+                    firstRawLine: round.firstRawLine,
+                    unrecognizedSamples: round.unrecognizedSamples,
+                    hadText: !round.text.isEmpty,
+                    chatProtocol: chatProtocol
+                )
             }
         }
+    }
+
+    /// 一轮「既没等到结束原因、也没等到收尾标记」时到底该说哪句话。
+    ///
+    /// 这里原本只有一句「连接提前中断，回复可能不完整」，把四种完全不同的情况
+    /// 说成了同一句 —— 用户照着那句话什么都查不出来，我们这边也只能猜。
+    /// 现在按**流里究竟收到了什么**分开说：
+    ///
+    /// | 收到的 | 说明 | 该说的话 |
+    /// | --- | --- | --- |
+    /// | 切不出帧 | 对方回的就不是 SSE（有些中转站会谎报 Content-Type） | 贴出开头原文 |
+    /// | 有帧、认不出，但**另一条协议能认** | 协议与地址不配套（最常见） | 点名该换成哪条协议 |
+    /// | 有帧、认不出，两条都认不出 | 天知道是什么 | 贴出开头原文 |
+    /// | 认出来了却一个字没有 | 只收到思考块之类的，流就断了 | 说「还没给出回复」 |
+    /// | 有正文、只是收尾标记没来 | 真的可能被截断 | 保留原话 |
+    ///
+    /// 纯函数、不碰 UI，单测与 Python 镜像共用（见 `AIChatModelTests` / 镜像 11）。
+    static func truncationNotice(
+        frameCount: Int,
+        recognizedEventCount: Int,
+        firstRawLine: String?,
+        unrecognizedSamples: [String],
+        hadText: Bool,
+        chatProtocol: AIChatProtocol
+    ) -> String {
+        let other: AIChatProtocol = chatProtocol == .anthropicMessages ? .openAICompatible : .anthropicMessages
+
+        guard recognizedEventCount > 0 else {
+            // 一帧都没切出来：对方回的不是流式格式
+            guard frameCount > 0 else {
+                guard let raw = firstRawLine else {
+                    return "接口没有返回任何内容，请稍后重试。"
+                }
+                return "接口回的内容不是流式格式，解析不了。请到「设置 → AI 对话」核对接口地址与协议是否配套。接口开头是：\(raw)"
+            }
+            // 切出了帧却一个事件都认不出来 —— 最常见的原因是协议选错了。
+            // 拿另一条协议的解码器试一下就能当场证明（这也是本地唯一能验的路径）。
+            let looksLikeOther = unrecognizedSamples.contains { sample in
+                !decode(SSEFrame(event: nil, data: sample), chatProtocol: other).isEmpty
+            }
+            if looksLikeOther {
+                return "这个地址回的是「\(other.title)」格式的流，跟「协议」里选的「\(chatProtocol.title)」对不上。请把协议改成「\(other.title)」，或把接口地址换成「\(chatProtocol.title)」的地址。"
+            }
+            guard let sample = unrecognizedSamples.first else {
+                return "接口没有返回任何内容，请稍后重试。"
+            }
+            return "接口回的内容既不像「\(chatProtocol.title)」也不像「\(other.title)」的流式格式（开头是：\(sample)）。请核对接口地址与协议是否配套。"
+        }
+
+        // 认出了东西却一个字都没有（比如只收到思考块）就断了
+        guard hadText else {
+            return "接口还没给出回复就断开了，请重试。"
+        }
+        return "连接提前中断，回复可能不完整。"
     }
 
     // MARK: - 正文刷新

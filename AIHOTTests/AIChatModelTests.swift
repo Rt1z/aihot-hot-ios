@@ -2,11 +2,14 @@ import XCTest
 
 @testable import AIHOT
 
-/// `AIChatModel` 里唯一能离线验证的东西：**攒历史**（`history(from:)`）。
+/// `AIChatModel` 里能离线验证的两块：**攒历史**（`history(from:)`）和
+/// **「一个事件都没认出来」时该说哪句话**（`truncationNotice`）。
 ///
 /// 发送路径整个挂在网络上，流式循环要 `URLSession.AsyncBytes`，都只有真机能跑。
-/// 但「多轮会话对不对」的承重点恰好是纯的 —— 一轮问答结束后，下一问到底把什么
-/// 当成了历史。它错了不会崩，只会让模型失忆或收到一条空消息，所以必须钉住。
+/// 但这两处的承重点恰好都是纯的：
+/// - 一轮问答结束后，下一问到底把什么当成了历史 —— 错了不会崩，只会让模型失忆；
+/// - 失败时那句话说不说得清 —— 侧载的 App 挂不上调试器，**那是唯一的诊断信号**。
+///   原来四种完全不同的故障共用一句「连接提前中断」，用户照着一句话什么都查不出来。
 ///
 /// `AIChatModel` 是 @MainActor 的（它的 static 成员也是），所以用例也得跑在主 actor 上，
 /// 否则连编译都过不去。逐个方法标 @MainActor，**不要**标在类上 —— 那会连
@@ -15,6 +18,35 @@ final class AIChatModelTests: XCTestCase {
 
     private func message(_ role: AIChatTurn.Role, _ text: String) -> AIChatMessage {
         AIChatMessage(role: role, text: text)
+    }
+
+    /// 照着 `AIChatModel.consume` 的记法走一遍夹具：切帧、解码、留几段认不出来的原文。
+    private func scan(
+        _ text: String,
+        as chatProtocol: AIChatProtocol
+    ) -> (frames: Int, recognized: Int, samples: [String]) {
+        var reader = SSEFrameReader()
+        var frames = 0
+        var recognized = 0
+        var samples: [String] = []
+
+        func take(_ frame: SSEFrame) {
+            frames += 1
+            let events = chatProtocol == .anthropicMessages
+                ? AnthropicSSEDecoder.decode(frame)
+                : OpenAISSSEDecoder.decode(frame)
+            recognized += events.count
+            if events.isEmpty, !frame.data.isEmpty, samples.count < 5 {
+                samples.append(String(frame.data.prefix(200)))
+            }
+        }
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false).map({ String($0) }) {
+            guard let frame = reader.consume(line: line) else { continue }
+            take(frame)
+        }
+        if let frame = reader.flush() { take(frame) }
+        return (frames, recognized, samples)
     }
 
     // MARK: - 多轮历史
@@ -103,5 +135,134 @@ final class AIChatModelTests: XCTestCase {
         XCTAssertEqual(Array(secondHistory.prefix(firstHistory.count)), firstHistory)
         XCTAssertEqual(Array(thirdHistory.prefix(secondHistory.count)), secondHistory)
         XCTAssertEqual(thirdHistory.count, 5)
+    }
+
+    // MARK: - 失败时说的是哪句话
+
+    /// 最要紧的一条：**协议与地址不配套**。
+    ///
+    /// 用真实夹具的字节：Anthropic 的流喂给 OpenAI 兼容的解码器，一个事件都认不出来 ——
+    /// 真机上这就是「没有任何回复 + 连接提前中断」的样子。这时不许再怪连接，
+    /// 得点名让用户去把协议改过来（另一条协议的解码器认得这些帧，这就是证据）。
+    @MainActor
+    func testForeignProtocolStreamIsNamedInsteadOfBlamedOnTheConnection() throws {
+        let scanned = scan(try Fixture.text("anthropic-sse", ext: "txt"), as: .openAICompatible)
+        XCTAssertEqual(scanned.recognized, 0, "Anthropic 的帧不该被 OpenAI 兼容的解码器认出来")
+        XCTAssertFalse(scanned.samples.isEmpty, "认不出来的原文要留一点，否则没法诊断")
+
+        let notice = AIChatModel.truncationNotice(
+            frameCount: scanned.frames,
+            recognizedEventCount: scanned.recognized,
+            firstRawLine: nil,
+            unrecognizedSamples: scanned.samples,
+            hadText: false,
+            chatProtocol: .openAICompatible
+        )
+
+        XCTAssertTrue(notice.contains("Anthropic"), notice)
+        XCTAssertFalse(notice.contains("连接提前中断"), notice)
+    }
+
+    /// 反方向同样要点名（选了 Anthropic、地址其实是 OpenAI 兼容的）。
+    @MainActor
+    func testForeignProtocolInTheOtherDirectionIsAlsoNamed() throws {
+        let scanned = scan(try Fixture.text("openai-sse", ext: "txt"), as: .anthropicMessages)
+        XCTAssertEqual(scanned.recognized, 0, "OpenAI 兼容的帧不该被 Anthropic 的解码器认出来")
+
+        let notice = AIChatModel.truncationNotice(
+            frameCount: scanned.frames,
+            recognizedEventCount: scanned.recognized,
+            firstRawLine: nil,
+            unrecognizedSamples: scanned.samples,
+            hadText: false,
+            chatProtocol: .anthropicMessages
+        )
+
+        XCTAssertTrue(notice.contains("OpenAI 兼容"), notice)
+        XCTAssertFalse(notice.contains("连接提前中断"), notice)
+    }
+
+    /// 两条协议都认不出来时，把**接口真正发来的原文**贴出来 ——
+    /// 这是我们在没有真机的情况下唯一能拿到的东西。
+    @MainActor
+    func testUnrecognisableStreamShowsWhatTheEndpointActuallySent() {
+        let notice = AIChatModel.truncationNotice(
+            frameCount: 3,
+            recognizedEventCount: 0,
+            firstRawLine: nil,
+            unrecognizedSamples: [#"{"hello":"world"}"#],
+            hadText: false,
+            chatProtocol: .openAICompatible
+        )
+
+        XCTAssertTrue(notice.contains(#"{"hello":"world"}"#), notice)
+        XCTAssertFalse(notice.contains("连接提前中断"), notice)
+    }
+
+    /// 不是 SSE 的响应体（有些中转站谎报 `Content-Type: text/event-stream`）：
+    /// 一帧都切不出来，所以线索是**第一行原文**，不是帧里的 data。
+    @MainActor
+    func testNonStreamingBodyIsReportedWithItsOwnOpeningBytes() {
+        let notice = AIChatModel.truncationNotice(
+            frameCount: 0,
+            recognizedEventCount: 0,
+            firstRawLine: "<!DOCTYPE html><html>…",
+            unrecognizedSamples: [],
+            hadText: false,
+            chatProtocol: .openAICompatible
+        )
+
+        XCTAssertTrue(notice.contains("<!DOCTYPE html>"), notice)
+        XCTAssertTrue(notice.contains("不是流式"), notice)
+        XCTAssertFalse(notice.contains("连接提前中断"), notice)
+    }
+
+    /// 连一帧、一行都没有：那就是真没内容，别扯协议。
+    @MainActor
+    func testStreamWithNoContentAtAllSaysSo() {
+        let notice = AIChatModel.truncationNotice(
+            frameCount: 0,
+            recognizedEventCount: 0,
+            firstRawLine: nil,
+            unrecognizedSamples: [],
+            hadText: false,
+            chatProtocol: .openAICompatible
+        )
+
+        XCTAssertEqual(notice, "接口没有返回任何内容，请稍后重试。")
+    }
+
+    /// 认出了东西却一个字都没有（比如只收到思考块就断了）。
+    /// 这种情况下没有「回复」可言，说「回复可能不完整」是错的。
+    @MainActor
+    func testStreamThatDiedBeforeAnyReplyIsNotCalledATruncatedReply() {
+        let notice = AIChatModel.truncationNotice(
+            frameCount: 4,
+            recognizedEventCount: 3,
+            firstRawLine: nil,
+            unrecognizedSamples: [],
+            hadText: false,
+            chatProtocol: .openAICompatible
+        )
+
+        XCTAssertTrue(notice.contains("还没给出回复"), notice)
+        XCTAssertFalse(notice.contains("连接提前中断"), notice)
+    }
+
+    /// 真有正文、只是收尾标记没来 —— **这句老话是给这种情况留的，别一起删掉**。
+    /// 有些中转站不发 `data: [DONE]`，只给 `finish_reason`；反过来，流被网络掐断时
+    /// 正文可能已经出了一半，这时提醒「可能不完整」是对的。
+    @MainActor
+    func testStreamWithTextButNoEndMarkerKeepsTheOriginalWording() {
+        let notice = AIChatModel.truncationNotice(
+            frameCount: 12,
+            recognizedEventCount: 12,
+            firstRawLine: nil,
+            unrecognizedSamples: [],
+            hadText: true,
+            chatProtocol: .openAICompatible
+        )
+
+        XCTAssertEqual(notice, "连接提前中断，回复可能不完整。")
     }
 }

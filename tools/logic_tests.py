@@ -511,6 +511,74 @@ def chat_history(messages):
     return [(role, text) for role, text in messages if text != ""]
 
 
+# 镜像 11：失败原因（AIChatModel.truncationNotice）
+
+PROTOCOL_TITLES = {"anthropic": "Anthropic", "openai": "OpenAI 兼容"}
+PROTOCOL_DECODERS = {"anthropic": anthropic_events, "openai": openai_events}
+
+
+def other_protocol(protocol):
+    return "openai" if protocol == "anthropic" else "anthropic"
+
+
+def scan_stream(text, protocol):
+    """与 AIChatModel.consume 的记法对应：切了几帧、认出几个事件、留了哪几段原文。
+
+    留原文的规则是「这一帧什么都没认出来，且 data 非空」，最多 5 段、每段最多 200 字。
+    """
+    reader = FrameReader()
+    decoder = PROTOCOL_DECODERS[protocol]
+    frames = 0
+    recognized = 0
+    samples = []
+
+    def take(frame):
+        nonlocal frames, recognized
+        if frame is None:
+            return
+        frames += 1
+        events = decoder(frame)
+        recognized += len(events)
+        if not events and frame["data"] and len(samples) < 5:
+            samples.append(frame["data"][:200])
+
+    for line in text.split("\n"):
+        take(reader.consume(line))
+    take(reader.flush())
+    return {"frames": frames, "recognized": recognized, "samples": samples}
+
+
+def truncation_notice(frame_count, recognized, first_raw_line, samples, had_text, protocol):
+    """与 AIChatModel.truncationNotice 对应：一轮「既没等到结束原因、也没等到收尾标记」
+    时该说哪句话。
+
+    原来只有一句「连接提前中断，回复可能不完整」，把四种完全不同的故障说成了同一句 ——
+    用户照着它什么都查不出来，我们这边也只能猜。侧载的 App 挂不上调试器，
+    **这行字就是唯一的诊断信号**，所以它必须说出流里究竟收到了什么。
+    """
+    titles = PROTOCOL_TITLES
+    other = other_protocol(protocol)
+
+    if recognized == 0:
+        if frame_count == 0:
+            if first_raw_line is None:
+                return "接口没有返回任何内容，请稍后重试。"
+            return ("接口回的内容不是流式格式，解析不了。请到「设置 → AI 对话」核对接口地址与协议是否配套。"
+                    "接口开头是：%s" % first_raw_line)
+        if any(PROTOCOL_DECODERS[other]({"event": None, "data": s}) for s in samples):
+            return ("这个地址回的是「%s」格式的流，跟「协议」里选的「%s」对不上。"
+                    "请把协议改成「%s」，或把接口地址换成「%s」的地址。"
+                    % (titles[other], titles[protocol], titles[other], titles[protocol]))
+        if not samples:
+            return "接口没有返回任何内容，请稍后重试。"
+        return ("接口回的内容既不像「%s」也不像「%s」的流式格式（开头是：%s）。"
+                "请核对接口地址与协议是否配套。" % (titles[protocol], titles[other], samples[0]))
+
+    if not had_text:
+        return "接口还没给出回复就断开了，请重试。"
+    return "连接提前中断，回复可能不完整。"
+
+
 def ai_news_context(item, story, prefetched_digest=None, limit=6000, max_reports=8):
     """与 AIChatNewsContext.make 对应。只断言关键性质，不追求逐字节一致。"""
     story = story or {}
@@ -1080,6 +1148,56 @@ def run():
     check_eq(history_second[:len(history_first)], history_first, "第二轮的历史以第一轮为前缀")
     check_eq(history_third[:len(history_second)], history_second, "第三轮的历史以第二轮为前缀")
     check_eq(len(history_third), 5, "纯追加，长度正好是 5")
+
+    print("")
+    print("== 镜像 11：失败原因（AIChatModel.truncationNotice）==")
+    # 这一条全线都是「用错协议」的复现：把一家的流喂给另一家的解码器，一个事件都认不出来。
+    # 真机上这就是「没有任何回复 + 连接提前中断」。夹具用的是同一份夹具文件，
+    # 与 AIChatModelTests 里那两条用例读的是同样的字节。
+    cross_anthropic = scan_stream(fixture_text("anthropic-sse.txt"), "openai")
+    cross_openai = scan_stream(fixture_text("openai-sse.txt"), "anthropic")
+
+    check_eq(cross_anthropic["recognized"], 0, "Anthropic 的帧不该被 OpenAI 兼容的解码器认出来")
+    check_eq(cross_openai["recognized"], 0, "OpenAI 兼容的帧不该被 Anthropic 的解码器认出来")
+
+    # 承重的一条：留下的原文必须**足够选出正确的那条协议**，否则这句提示就是白说。
+    check(any(PROTOCOL_DECODERS["anthropic"]({"event": None, "data": s})
+              for s in cross_anthropic["samples"]),
+          "Anthropic 的样本里要有一段能被 Anthropic 解码器认出（否则点不出名）")
+    check(any(PROTOCOL_DECODERS["openai"]({"event": None, "data": s})
+              for s in cross_openai["samples"]),
+          "OpenAI 兼容的样本里要有一段能被 OpenAI 兼容解码器认出")
+
+    notice = truncation_notice(cross_anthropic["frames"], cross_anthropic["recognized"],
+                               None, cross_anthropic["samples"], False, "openai")
+    check("Anthropic" in notice, "选错了协议要点名该换成哪条：" + notice)
+    check("连接提前中断" not in notice, "协议错配不该说成「连接提前中断」")
+
+    notice = truncation_notice(cross_openai["frames"], cross_openai["recognized"],
+                               None, cross_openai["samples"], False, "anthropic")
+    check("OpenAI 兼容" in notice, "反方向同样要点名：" + notice)
+    check("连接提前中断" not in notice, "反方向也不该说成「连接提前中断」")
+
+    # 三条兜底分支：各说各的，都不许再说「连接提前中断」。
+    notice = truncation_notice(0, 0, None, [], False, "openai")
+    check_eq(notice, "接口没有返回任何内容，请稍后重试。", "一帧一行都没有 → 直说没内容")
+
+    notice = truncation_notice(0, 0, "<!DOCTYPE html><html>…", [], False, "openai")
+    check("<!DOCTYPE html>" in notice and "不是流式" in notice,
+          "回的不是 SSE（有些中转站谎报 Content-Type）→ 把开头原文贴出来：" + notice)
+    check("连接提前中断" not in notice, "非 SSE 不该说成「连接提前中断」")
+
+    notice = truncation_notice(3, 0, None, ['{"hello":"world"}'], False, "openai")
+    check('{"hello":"world"}' in notice, "两条协议都认不出来时也要贴出原文：" + notice)
+    check("连接提前中断" not in notice, "认不出来 ≠ 连接中断")
+
+    notice = truncation_notice(4, 3, None, [], False, "openai")
+    check("还没给出回复" in notice, "只收到思考块就断了 → 根本没有「回复」可谈：" + notice)
+
+    # 真有正文、只是收尾标记没来：这句老话是给这种情况留的，别一起删掉。
+    check_eq(truncation_notice(12, 12, None, [], True, "openai"),
+             "连接提前中断，回复可能不完整。",
+             "有正文、只是收尾标记没来 → 保留原话")
 
     print("镜像测试：通过 %d 项" % _passed)
     if _failed:

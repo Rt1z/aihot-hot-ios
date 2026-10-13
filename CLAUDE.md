@@ -76,6 +76,7 @@ AIChatView (sheet) ──> AIChatModel (@MainActor: owns the bytes.lines loop,
 pure & tested:  SSEParser (frames + both decoders) · AIChatTool (call accumulator)
                 AIChatNewsContext (prompt material) · AIChatConfig/AIChatRequestBuilder
                 AIChatModel.history (跨轮历史：空消息剔除 + 纯追加)
+                AIChatModel.truncationNotice (一轮什么都没认出来时说哪句话)
 ```
 
 ### Rules that will bite you if you don't know them
@@ -124,6 +125,8 @@ The old test used a **hand-written** `{"error":{"message":"Invalid API key"}}` p
 
 **15. 报道节奏图的一切数字都出自纯函数 `ReportTimeline`，它是被镜像的那类逻辑.** `ReportTimeline.make(story:)` 不读 `Date()`（窗口由数据自己的最早/最新一条决定），所以同一条 story 永远得到同样的图，能被夹具钉住。`ReportTimelineChart` 只负责把 `Summary` 画出来，**不允许**在里面分桶、算刻度或改标签。三条不变量：桶按**北京时间**对齐（与 `RelativeTime` 同一口径，否则「哪一天」会按 UTC 切）；`count == 0` 的空桶要留着（断档本身就是结论）；**桶数 ≤ 24**——x 轴是按标签分类的轴，重名会被合并成一根柱子，而 ≤ 24 恰好保证标签不可能重复。轴刻度只能整数除法 `i * (n - 1) / 4`，**绝不能引入 `round()`**：Python 是银行家舍入、Swift 是四舍五入，`n = 25` 时两边会挑出不同的刻度。改这里就要同步改 `tools/logic_tests.py` 的「镜像 9」，两边读同一份夹具 `AIHOTTests/Fixtures/story-timeline.json`（`story.json` 只有 1 条报道、且被 `len(reports) == 1` 钉着，不能拿来用）。
 
+**16. 「连接提前中断，回复可能不完整」只留给「真有正文、只是收尾标记没来」，别把它当成万能兜底.** 这句话原来被四种完全不同的故障共用：协议与地址不配套（另一条协议的流被本协议的解码器读到，一个事件都认不出来）、服务端回了非 SSE 的东西却谎报 `Content-Type: text/event-stream`、一帧都没收到、以及只收到思考块就断了。前三种与「连接中断」毫无关系，用户照着一句话什么都查不出来 —— 侧载的 App 挂不上调试器，**界面上那行字就是唯一的诊断信号**，所以 `AIChatModel.consume` 会把「切了几帧、认出几个事件、前 5 段认不出来的原文」记进 `StreamedRound`，由纯函数 `AIChatModel.truncationNotice` 分情况说话：拿**另一条协议的解码器**认出样本时直接点名该换哪条协议（这是最值钱的一条，`AIChatModelTests` 用两份 SSE 夹具双向钉住），否则把接口真正发来的开头原文贴出来。新增失败分支时把话说清楚、并把原文带上，不要退回一句兜底；`tools/logic_tests.py` 的「镜像 11」与 Swift 用例读同一份夹具。
+
 ### Project file conventions
 
 - **Never add `info:` to a target in `project.yml`.** XcodeGen's `info.path` means "generate a plist *at* this path", not "use this file as the base". With it set, XcodeGen overwrites `AIHOT/Info.plist` with its own defaults and every hand-written key is lost — that silently shipped an app named `AIHOT` instead of `AI 热点榜`, with no `UILaunchScreen` (letterboxed on modern iPhones), rotatable to landscape, and with `CFBundleVersion` frozen at `1` so AltStore could never detect an update. The target sets `INFOPLIST_FILE: AIHOT/Info.plist` in `settings` instead, which is why the committed plist is the real one and why `preflight`'s check of it is meaningful. `CFBundleVersion` must stay `$(CURRENT_PROJECT_VERSION)` so the CI run-number override lands.
@@ -142,7 +145,7 @@ The old test used a **hand-written** `{"error":{"message":"Invalid API key"}}` p
 - API model fields stay `Optional` liberally (`Source.name`, etc.) so one malformed item can't blank the whole list on decode.
 - `RegexUtil` exists so no regex library gets added; prefer it over pulling in a dependency.
 - There is no networking in tests, and no fixtures are ever written back — the whole test suite is pure/offline.
-- The mirror in `tools/logic_tests.py` also covers the SSE frame reader and both protocol decoders (against `AIHOTTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read), the tool-call accumulator, the AnySearch response parsing (against `anysearch-search.json`), the AI base-URL normalisation, the news-context builder, the 报道节奏 bucketing (镜像 9, against `story-timeline.json`), and the cross-turn history filter (镜像 10, `AIChatModel.history`). That is the only pre-CI signal for the trickiest logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (Python can't build them), the tool round-trip shapes, and the secret store (a fake backend).
+- The mirror in `tools/logic_tests.py` also covers the SSE frame reader and both protocol decoders (against `AIHOTTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read), the tool-call accumulator, the AnySearch response parsing (against `anysearch-search.json`), the AI base-URL normalisation, the news-context builder, the 报道节奏 bucketing (镜像 9, against `story-timeline.json`), the cross-turn history filter (镜像 10, `AIChatModel.history`), and the failure wording (镜像 11, `AIChatModel.truncationNotice`). That is the only pre-CI signal for the trickiest logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (Python can't build them), the tool round-trip shapes, and the secret store (a fake backend).
 - Secrets never go in `@AppStorage`/`@AppStorage`-like paths: the API key lives in the Keychain (`AIChatSecretStore`), with a deliberate UserDefaults fallback **that the UI must disclose**. Two error codes to keep apart: `errSecItemNotFound (-25300)` means "nothing saved yet" (never a failure, and treating it as one writes an empty value on first launch), while something like `errSecMissingEntitlement (-34018)` is a real failure and triggers the fallback.
 
 ### Attribution constraints (product, not just legal)
