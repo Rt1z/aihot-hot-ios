@@ -83,7 +83,7 @@ final class ChatHistoryStoreTests: XCTestCase {
             )
         }
 
-        let keys = diskSessions(fileURL).map(\.key)
+        let keys = try diskSessions(fileURL).map(\.key)
         XCTAssertEqual(keys.count, ChatHistoryStore.maximumSessions)
         XCTAssertEqual(keys, (5..<55).map { "key-\($0)" }, "淘汰最旧的 5 条，留下的顺序不变")
         XCTAssertNil(store.load(key: "key-0"), "最旧的被淘汰")
@@ -105,7 +105,7 @@ final class ChatHistoryStoreTests: XCTestCase {
         store.save(messages: [message(.user, "A 的第二问")], key: "a",
                    at: Date(timeIntervalSince1970: 1_760_000_120))
 
-        let keys = diskSessions(fileURL).map(\.key)
+        let keys = try diskSessions(fileURL).map(\.key)
         XCTAssertEqual(keys, ["b", "a"], "同 key 再存：只留一份、排到末尾（= 最新）")
         XCTAssertEqual(store.load(key: "a")?.first?.text, "A 的第二问", "内容被更新，不是并存两条")
     }
