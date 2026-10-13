@@ -68,8 +68,10 @@ final class ExaTests: XCTestCase {
                       "抓到的正文就是这么开头的，实际：\(text.prefix(50))")
         XCTAssertTrue(text.hasSuffix("Strap in."), "抓到的正文结尾")
         XCTAssertEqual(text.count, 10689, "请求了 8000、实测回了 10689 —— 断言从字节推导")
-        XCTAssertEqual(text.components(separatedBy: "### ").count - 1, 0,
-                       "正文直接返回，不套搜索结果的标题块")
+        // 「不套搜索结果的标题块」只能钉前缀：这一页自己就带 6 个 `### N. …` 小标题，
+        // 按出现次数断言会红（第一版就是这么错的）—— 搜索形态会以 `### 1. ` 开头，
+        // 原文形态以页面标题开头，上面的 hasPrefix 已经钉住，这条是同义的显式表达。
+        XCTAssertFalse(text.hasPrefix("### "), "正文直接返回，不套搜索结果的标题块")
     }
 
     /// **HTTP 200 也可能有 `statuses[]` 失败条目** —— Tavily `failed_results` 的同款陷阱
