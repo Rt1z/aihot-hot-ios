@@ -196,6 +196,35 @@ final class AIChatModelTests: XCTestCase {
         )
 
         XCTAssertTrue(notice.contains(#"{"hello":"world"}"#), notice)
+        XCTAssertTrue(
+            notice.contains("共切出 3 帧"),
+            "帧数必须带上：流的第一帧（role 分片 / message_start）本来就认不出来，"
+                + "光看开头分不清「整条流被拼成一帧」和「切了很多帧都不认识」"
+        )
+        XCTAssertFalse(notice.contains("连接提前中断"), notice)
+    }
+
+    /// 留了好几段样本时，头尾都要贴出来。
+    ///
+    /// 只贴第一段，看到的基本永远是 `{"index":0,"delta":{"role":"assistant"}}`
+    /// 这种「结构帧」—— 它按协议本来就不产出事件，等于什么都没说。
+    @MainActor
+    func testUnrecognisableStreamShowsBothEndsOfTheSamples() {
+        let notice = AIChatModel.truncationNotice(
+            frameCount: 12,
+            recognizedEventCount: 0,
+            firstRawLine: nil,
+            unrecognizedSamples: [
+                #"{"choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}"#,
+                #"{"choices":[{"index":0,"delta":{"content":""},"finish_reason":null}]}"#,
+            ],
+            hadText: false,
+            chatProtocol: .openAICompatible
+        )
+
+        XCTAssertTrue(notice.contains("共切出 12 帧"), notice)
+        XCTAssertTrue(notice.contains(#""role":"assistant""#), notice)
+        XCTAssertTrue(notice.contains("最后一段是"), notice)
         XCTAssertFalse(notice.contains("连接提前中断"), notice)
     }
 

@@ -256,4 +256,73 @@ final class SSEParserTests: XCTestCase {
         let result = openAI("data: {\"error\":{\"message\":\"Invalid API key\"}}", "")
         XCTAssertEqual(result.names, ["error"])
     }
+
+    // MARK: - 行是怎么切出来的（承重：SSE 只认空行分帧）
+
+    /// 照 `AIChatModel.consume` 的读法：逐字节喂进自己的切行器。
+    private func lines(of text: String) -> [String] {
+        var splitter = SSELineSplitter()
+        var result: [String] = []
+        for byte in Array(text.utf8) {
+            if let line = splitter.consume(byte: byte) { result.append(line) }
+        }
+        if let line = splitter.flush() { result.append(line) }
+        return result
+    }
+
+    /// **量一下平台自己的切行器**（不是猜的）。
+    ///
+    /// `AsyncStream<UInt8>.lines` 与 `URLSession.AsyncBytes.lines` 是同一个
+    /// `AsyncSequence where Element == UInt8` 扩展，所以这条能在没有网络、没有真机的情况下
+    /// 量出设备上的行为。量它是因为**空行是 SSE 分帧的唯一依据**：一旦被吞掉，
+    /// 整条流会被拼成一帧、每个事件都认不出来，真机上的表现就是「没有任何回复」。
+    ///
+    /// 这条红了 = 平台确实会吞空行 = 必须用 `SSELineSplitter`（App 里已经是它了）。
+    func testPlatformLineSplitterKeepsBlankLines() async throws {
+        let stream = AsyncStream<UInt8> { continuation in
+            for byte in Array("data: a\n\ndata: b\n\n".utf8) { continuation.yield(byte) }
+            continuation.finish()
+        }
+        var observed: [String] = []
+        for try await line in stream.lines { observed.append(line) }
+
+        XCTAssertEqual(
+            observed, ["data: a", "", "data: b", ""],
+            "空行必须活着交出来：被吞掉就会被拼成一帧，解码器一个事件都认不出来"
+        )
+    }
+
+    func testSplitterKeepsBlankLinesAndTheLastUnterminatedLine() {
+        XCTAssertEqual(lines(of: "data: a\n\ndata: b\n\n"), ["data: a", "", "data: b", ""])
+        XCTAssertEqual(lines(of: "data: x"), ["data: x"], "末尾没有换行的那一行不能丢")
+        XCTAssertEqual(lines(of: ""), [], "什么都不喂就不该产出幻影空行")
+        XCTAssertEqual(lines(of: "\n"), [""])
+    }
+
+    /// CRLF：切行只看 `\n`，`\r` 留给分帧器剥（它本来就在剥）。
+    func testSplitterLeavesTheCarriageReturnToTheFrameReader() {
+        XCTAssertEqual(lines(of: "data: x\r\n\r\n"), ["data: x\r", "\r"])
+        XCTAssertEqual(openAI("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\r", "").text, "x")
+    }
+
+    /// 夹具的**字节**走一遍「切行 → 分帧」，必须和按行喂进去得到同一轮。
+    ///
+    /// 这条钉的是那段原来归平台管的链路（`bytes.lines` 本地验不了）。
+    func testFixtureBytesProduceTheSameRoundAsItsLines() throws {
+        let text = try Fixture.text("openai-sse", ext: "txt")
+        let byLines = collect(text.components(separatedBy: "\n"), anthropic: false)
+        let byBytes = collect(lines(of: text), anthropic: false)
+
+        XCTAssertEqual(byBytes.text, byLines.text)
+        XCTAssertEqual(byBytes.stopReason, byLines.stopReason)
+        XCTAssertEqual(byBytes.names, byLines.names)
+        XCTAssertEqual(byBytes.toolCalls.map { $0.id }, byLines.toolCalls.map { $0.id })
+        XCTAssertEqual(byBytes.toolCalls.map { $0.argumentsJSON }, byLines.toolCalls.map { $0.argumentsJSON })
+        XCTAssertEqual(byBytes.names.last, "done", "收尾标记也要走到")
+
+        // 夹具以**单个**换行结尾：按行切会多出一个幻影空行，切行器不产出它 ——
+        // 那一帧由分帧器在流结束时 flush 出来，帧本身不变（上面几条就是证据）。
+        let trimmed = text.hasSuffix("\n") ? String(text.dropLast()) : text
+        XCTAssertEqual(lines(of: trimmed), trimmed.components(separatedBy: "\n"))
+    }
 }

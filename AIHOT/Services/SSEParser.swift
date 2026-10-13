@@ -97,6 +97,51 @@ struct SSEFrameReader {
     }
 }
 
+/// 把响应体的字节切成**行**（行尾的交上去），空行原样产出。
+///
+/// 为什么不用平台的 `AsyncSequence.lines`：**空行是 SSE 分帧的唯一依据** ——
+/// `SSEFrameReader` 只有见到空行才交出一帧。任何一处「顺手把空行吞掉」的读行方式
+/// 都会把整条流拼成**一帧**：拼起来的 JSON 解不出来，于是每个事件都认不出来，
+/// 界面上就是「一个字都没有」加一句看不懂的提示。真机上报回来的症状正是这个形状
+/// （提示里贴出的开头是一段完好的 JSON，却一个事件都没认出来），而那种读行方式
+/// 的行为不在我们手里（它把 CR、NEL、LS、PS 都当行尾，空行留不留是实现细节）。
+/// 这一段我们自己切得起：规则简单到可以**逐字节**钉住（见 `SSEParserTests`）。
+///
+/// 只认 LF（`0x0A`）一种行尾：CRLF 里的 `\r` 由 `SSEFrameReader.consume` 剥掉
+/// （那里本来就在剥）。裸 CR 作行尾（老 Mac 风格）的响应至今没遇到过，真遇到的话
+/// 这一路会认不出来 —— 宁可少抽，那时再补。
+struct SSELineSplitter {
+
+    /// 单行上限。对方一直不发换行时不能把内存吃光 ——
+    /// 超出的部分直接丢弃，那一行本来也解不出来。
+    private static let maximumLineLength = 64 * 1024
+
+    private var buffer: [UInt8] = []
+
+    /// 喂一个字节。攒到换行就交出一整行（可能是个空串，那正是分帧的开关）。
+    mutating func consume(byte: UInt8) -> String? {
+        guard byte == 0x0A else {
+            if buffer.count < Self.maximumLineLength { buffer.append(byte) }
+            return nil
+        }
+        return takeLine()
+    }
+
+    /// 流结束时调用：最后一行没有以换行收尾时也要交出来（两个夹具就是这么结尾的）。
+    mutating func flush() -> String? {
+        guard !buffer.isEmpty else { return nil }
+        return takeLine()
+    }
+
+    private mutating func takeLine() -> String {
+        // 非法 UTF-8 交给 String 替换成 U+FFFD：这一行大概率解不出来，
+        // 但绝不能因为它就把整条流丢掉。
+        let line = String(decoding: buffer, as: UTF8.self)
+        buffer.removeAll(keepingCapacity: true)
+        return line
+    }
+}
+
 // MARK: - Anthropic Messages 协议
 
 /// 把 Anthropic 的 `data:` JSON 认成 `AIChatEvent`。

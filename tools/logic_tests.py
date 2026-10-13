@@ -302,6 +302,50 @@ class FrameReader:
         return frame
 
 
+class ByteLineSplitter:
+    """与 Swift 的 SSELineSplitter 一一对应：只认 LF，空行原样交出。
+
+    空行是 SSE 分帧的**唯一**依据，谁把它吞掉，整条流就会被拼成一帧、
+    一个事件都认不出来（真机上那句「没有任何回复」就是这么来的）。
+    """
+
+    MAXIMUM_LINE_LENGTH = 64 * 1024
+
+    def __init__(self):
+        self.buffer = bytearray()
+
+    def consume(self, byte):
+        if byte != 0x0A:
+            if len(self.buffer) < self.MAXIMUM_LINE_LENGTH:
+                self.buffer.append(byte)
+            return None
+        return self._take()
+
+    def flush(self):
+        if not self.buffer:
+            return None
+        return self._take()
+
+    def _take(self):
+        line = self.buffer.decode("utf-8", errors="replace")
+        self.buffer = bytearray()
+        return line
+
+
+def split_lines(data):
+    """字节 → 行（照 SSELineSplitter 的用法走一遍）。"""
+    splitter = ByteLineSplitter()
+    lines = []
+    for byte in data:
+        line = splitter.consume(byte)
+        if line is not None:
+            lines.append(line)
+    line = splitter.flush()
+    if line is not None:
+        lines.append(line)
+    return lines
+
+
 def anthropic_events(frame):
     """与 AnthropicSSEDecoder.decode 对应：**一帧可能产出多个事件**。"""
     if frame is None:
@@ -421,8 +465,8 @@ def accumulate_tool_calls(events):
     return result
 
 
-def run_stream(text, decoder):
-    """喂一整段 SSE 文本，返回正文 / 事件名序列 / 结束原因 / 拼好的工具调用。"""
+def run_stream_lines(lines, decoder):
+    """喂一串**行**，返回正文 / 事件名序列 / 结束原因 / 拼好的工具调用。"""
     reader = FrameReader()
     chunks = []
     names = []
@@ -439,7 +483,7 @@ def run_stream(text, decoder):
             elif event[0] == "stop_reason":
                 stop_reason = event[1]
 
-    for line in text.split("\n"):
+    for line in lines:
         handle(decoder(reader.consume(line)))
     handle(decoder(reader.flush()))
 
@@ -449,6 +493,20 @@ def run_stream(text, decoder):
         "stop": stop_reason,
         "tool_calls": accumulate_tool_calls(all_events),
     }
+
+
+def run_stream(text, decoder):
+    """喂一整段 SSE 文本（按 `\n` 切行，与既有用例的读法一致）。"""
+    return run_stream_lines(text.split("\n"), decoder)
+
+
+def run_stream_bytes(data, decoder):
+    """同一段流，但入口是**字节**：先过一遍自己的切行器。
+
+    这条链路原来归平台的 `AsyncSequence.lines` 管（本地没法验），现在归我们 ——
+    所以它必须和按行喂进去得到同一轮。
+    """
+    return run_stream_lines(split_lines(data), decoder)
 
 
 def anysearch_result_text(payload):
@@ -571,8 +629,13 @@ def truncation_notice(frame_count, recognized, first_raw_line, samples, had_text
                     % (titles[other], titles[protocol], titles[other], titles[protocol]))
         if not samples:
             return "接口没有返回任何内容，请稍后重试。"
-        return ("接口回的内容既不像「%s」也不像「%s」的流式格式（开头是：%s）。"
-                "请核对接口地址与协议是否配套。" % (titles[protocol], titles[other], samples[0]))
+        # 帧数必须带上：流的第一帧（role 分片 / message_start）本来就认不出来，
+        # 光看开头分不清「整条流被拼成一帧」和「切了很多帧都不认识」。
+        detail = "共切出 %d 帧，开头是：%s" % (frame_count, samples[0])
+        if len(samples) > 1:
+            detail += "；最后一段是：%s" % samples[-1]
+        return ("接口回的内容既不像「%s」也不像「%s」的流式格式（%s）。"
+                "请核对接口地址与协议是否配套。" % (titles[protocol], titles[other], detail))
 
     if not had_text:
         return "接口还没给出回复就断开了，请重试。"
@@ -781,6 +844,11 @@ def fixture_text(name):
         return handle.read()
 
 
+def fixture_bytes(name):
+    with open(os.path.join(ROOT, "AIHOTTests", "Fixtures", name), "rb") as handle:
+        return handle.read()
+
+
 def fixture_json(name):
     with open(os.path.join(ROOT, "AIHOTTests", "Fixtures", name), "r", encoding="utf-8") as handle:
         return json.load(handle)
@@ -976,6 +1044,25 @@ def run():
              [("text", "x")], "没有 [DONE]、流自然结束也算完，正文不丢")
     check_eq(o('data: {"error":{"message":"Invalid API key"}}'),
              [("error", "Invalid API key")], "OpenAI 侧错误也要带原话")
+
+    # 切行：字节 → 行。空行是 SSE 分帧的**唯一**依据，所以这一组是承重的 ——
+    # 原来这段归平台的 `AsyncSequence.lines` 管（空行怎么处理是它的实现细节），
+    # 现在归自己的 SSELineSplitter。
+    check_eq(split_lines(b"data: a\n\ndata: b\n\n"), ["data: a", "", "data: b", ""],
+             "切行器不许吞空行（吞了整条流会被拼成一帧、一个事件都认不出来）")
+    check_eq(split_lines(b"data: x"), ["data: x"], "末尾没有换行的那一行也要交出来")
+    check_eq(split_lines(b""), [], "什么都不喂就不该产出幻影空行")
+    check_eq(split_lines(b"\n"), [""], "单个换行就是一行空行")
+    check_eq(split_lines(b"data: x\r\n\r\n"), ["data: x\r", "\r"], "CRLF 的 \\r 留给分帧器剥")
+
+    for name, decoder in (("anthropic-sse.txt", anthropic_events),
+                          ("openai-sse.txt", openai_events)):
+        data = fixture_bytes(name)
+        check_eq(run_stream_bytes(data, decoder), run_stream(data.decode("utf-8"), decoder),
+                 "%s：按字节切行与按行喂必须得到同一轮" % name)
+        # 夹具以单个换行结尾：按行切会多出一个幻影空行，切行器不产出它，帧本身不变。
+        check_eq(split_lines(data) + [""], data.decode("utf-8").split("\n"),
+                 "%s：切出来的行 = 夹具自己的行（只差结尾那个幻影空行）" % name)
 
     print("== 镜像 7：AI 对话的地址归一化与资料拼接 ==")
     check_eq(normalize_base_url("https://api.anthropic.com/"), "https://api.anthropic.com",
@@ -1189,7 +1276,20 @@ def run():
 
     notice = truncation_notice(3, 0, None, ['{"hello":"world"}'], False, "openai")
     check('{"hello":"world"}' in notice, "两条协议都认不出来时也要贴出原文：" + notice)
+    check("共切出 3 帧" in notice, "帧数要带上：光看开头分不清「拼成一帧」和「多帧都不认识」：" + notice)
     check("连接提前中断" not in notice, "认不出来 ≠ 连接中断")
+
+    # 留了好几段样本时头尾都要贴：只贴第一段，看到的永远是那一帧本来就认不出来的
+    # 「结构帧」（role 分片），等于什么都没说。
+    notice = truncation_notice(
+        12, 0, None,
+        ['{"choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}',
+         '{"choices":[{"index":0,"delta":{"content":""},"finish_reason":null}]}'],
+        False, "openai")
+    check("共切出 12 帧" in notice, "帧数：" + notice)
+    check('"role":"assistant"' in notice, "开头那段：" + notice)
+    check("最后一段是" in notice and '{"index":0,"delta":{"content":""}' in notice,
+          "结尾那段（往往才是关键）：" + notice)
 
     notice = truncation_notice(4, 3, None, [], False, "openai")
     check("还没给出回复" in notice, "只收到思考块就断了 → 根本没有「回复」可谈：" + notice)

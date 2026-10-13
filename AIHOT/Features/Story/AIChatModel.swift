@@ -217,17 +217,26 @@ final class AIChatModel: ObservableObject {
         _ bytes: URLSession.AsyncBytes,
         chatProtocol: AIChatProtocol
     ) async throws -> StreamedRound {
+        var splitter = SSELineSplitter()
         var reader = SSEFrameReader()
         var accumulator = AIChatToolCallAccumulator()
         var round = StreamedRound()
 
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
+        /// 一行的处理，字节路径与收尾路径共用。
+        func take(_ line: String) throws {
             record(line: line, round: &round)
-            guard let frame = reader.consume(line: line) else { continue }
+            guard let frame = reader.consume(line: line) else { return }
             let events = decode(frame, chatProtocol: chatProtocol, round: &round)
             try process(events, round: &round, accumulator: &accumulator)
         }
+
+        // 自己做切行，而不是 `bytes.lines`：空行是 SSE 分帧的唯一依据，
+        // 谁把它吞掉整条流就会被拼成一帧、一个事件都认不出来（见 SSELineSplitter）。
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            if let line = splitter.consume(byte: byte) { try take(line) }
+        }
+        if let line = splitter.flush() { try take(line) }
         if let frame = reader.flush() {
             let events = decode(frame, chatProtocol: chatProtocol, round: &round)
             try process(events, round: &round, accumulator: &accumulator)
@@ -382,9 +391,14 @@ final class AIChatModel: ObservableObject {
     /// | --- | --- | --- |
     /// | 切不出帧 | 对方回的就不是 SSE（有些中转站会谎报 Content-Type） | 贴出开头原文 |
     /// | 有帧、认不出，但**另一条协议能认** | 协议与地址不配套（最常见） | 点名该换成哪条协议 |
-    /// | 有帧、认不出，两条都认不出 | 天知道是什么 | 贴出开头原文 |
+    /// | 有帧、认不出，两条都认不出 | 天知道是什么 | 贴出**帧数**与开头/结尾原文 |
     /// | 认出来了却一个字没有 | 只收到思考块之类的，流就断了 | 说「还没给出回复」 |
     /// | 有正文、只是收尾标记没来 | 真的可能被截断 | 保留原话 |
+    ///
+    /// 「两条都认不出」那一支必须带上**帧数**：真机报回来的是
+    /// `{…完整的第一帧…}` 这种开头，而流的第一帧（`role` 分片 / `message_start`）
+    /// 本来就认不出来 —— 光看开头分不清「只切出一帧（整条流被拼在一起）」
+    /// 和「切出几十帧但都不认识」。帧数一说清，这两种故障就分开了。
     ///
     /// 纯函数、不碰 UI，单测与 Python 镜像共用（见 `AIChatModelTests` / 镜像 11）。
     static func truncationNotice(
@@ -416,7 +430,11 @@ final class AIChatModel: ObservableObject {
             guard let sample = unrecognizedSamples.first else {
                 return "接口没有返回任何内容，请稍后重试。"
             }
-            return "接口回的内容既不像「\(chatProtocol.title)」也不像「\(other.title)」的流式格式（开头是：\(sample)）。请核对接口地址与协议是否配套。"
+            var detail = "共切出 \(frameCount) 帧，开头是：\(sample)"
+            if unrecognizedSamples.count > 1, let last = unrecognizedSamples.last {
+                detail += "；最后一段是：\(last)"
+            }
+            return "接口回的内容既不像「\(chatProtocol.title)」也不像「\(other.title)」的流式格式（\(detail)）。请核对接口地址与协议是否配套。"
         }
 
         // 认出了东西却一个字都没有（比如只收到思考块）就断了
