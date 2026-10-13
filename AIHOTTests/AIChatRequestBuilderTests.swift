@@ -10,6 +10,10 @@ import XCTest
 /// 写错了模型就会一直重复调同一个工具。
 final class AIChatRequestBuilderTests: XCTestCase {
 
+    /// 注意默认值是**给 Anthropic 用的**：那一侧地址和模型都有内置默认值，全省略也能解析。
+    /// OpenAI 兼容那侧两者都没有默认（`resolve` 见空就返回 nil，表示「没配好」），
+    /// 所以凡是用 `.openAICompatible` 都要把 `baseURLRaw` 和 `modelRaw` 一起给上，
+    /// 否则这里会 XCTUnwrap 失败 —— 那不是被测代码的问题。
     private func config(
         _ chatProtocol: AIChatProtocol,
         baseURLRaw: String = "",
@@ -210,7 +214,10 @@ final class AIChatRequestBuilderTests: XCTestCase {
         ]
         let data = try XCTUnwrap(
             AIChatRequestBuilder.openAICompatibleBody(
-                config: try config(.openAICompatible), system: "SYS", newsContext: "CTX", turns: turns
+                config: try config(
+                    .openAICompatible, baseURLRaw: "https://api.deepseek.com/v1", modelRaw: "deepseek-chat"
+                ),
+                system: "SYS", newsContext: "CTX", turns: turns
             )
         )
         let messages = try XCTUnwrap(try json(data)["messages"] as? [[String: Any]])
