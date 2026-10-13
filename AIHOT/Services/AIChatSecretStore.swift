@@ -9,8 +9,10 @@ protocol AIChatSecretBackend {
     func delete(account: String)
 }
 
-/// API Key 的存放处。四份：两条对话协议各一份，AnySearch 一份（那份可选、可匿名），
-/// Tavily 一份（**必填** —— Tavily 没有匿名模式，没 Key 就搜不了）。
+/// API Key 的存放处。**七份**：两条对话协议各一份，五家搜索各一份
+/// （AnySearch 那份可选、可匿名；其余四家**必填** —— 没有匿名模式）。
+/// 搜索的 Key 用**键控 API**（`searchKey(for:)`）而不是每家一组方法：
+/// 五家 × 三件套 = 15 个近似方法，键控加一家只加一个 case。
 ///
 /// 默认走 Keychain（`Security` 框架，**不需要 entitlement**）。但侧载签名
 /// （AltStore + 免费 Apple ID）在个别配置下会让 Keychain 直接返回
@@ -49,42 +51,29 @@ final class AIChatSecretStore {
         usedFallback(account: Self.account(for: chatProtocol))
     }
 
-    // MARK: - AnySearch（可选）
+    // MARK: - 搜索工具（五家，键控）
 
-    func anySearchKey() -> String {
-        read(account: Self.anySearchAccount)
+    func searchKey(for provider: AppSettings.SearchToolProvider) -> String {
+        read(account: Self.searchAccount(for: provider))
     }
 
+    /// 返回 true 表示写进了 Keychain；false 表示降级到了 UserDefaults（界面要说明）。
     @discardableResult
-    func setAnySearchKey(_ value: String) -> Bool {
-        write(value, account: Self.anySearchAccount)
+    func setSearchKey(_ value: String, for provider: AppSettings.SearchToolProvider) -> Bool {
+        write(value, account: Self.searchAccount(for: provider))
     }
 
-    func isUsingAnySearchFallback() -> Bool {
-        usedFallback(account: Self.anySearchAccount)
-    }
-
-    // MARK: - Tavily（必填：没有匿名模式）
-
-    func tavilyKey() -> String {
-        read(account: Self.tavilyAccount)
-    }
-
-    @discardableResult
-    func setTavilyKey(_ value: String) -> Bool {
-        write(value, account: Self.tavilyAccount)
-    }
-
-    func isUsingTavilyFallback() -> Bool {
-        usedFallback(account: Self.tavilyAccount)
+    func isUsingSearchFallback(for provider: AppSettings.SearchToolProvider) -> Bool {
+        usedFallback(account: Self.searchAccount(for: provider))
     }
 
     func clear() {
         for chatProtocol in AIChatProtocol.allCases {
             clearAccount(Self.account(for: chatProtocol))
         }
-        clearAccount(Self.anySearchAccount)
-        clearAccount(Self.tavilyAccount)
+        for provider in AppSettings.SearchToolProvider.allCases {
+            clearAccount(Self.searchAccount(for: provider))
+        }
     }
 
     // MARK: - 内部
@@ -126,13 +115,22 @@ final class AIChatSecretStore {
         defaults.removeObject(forKey: Self.fallbackKey(account))
     }
 
-    private static let anySearchAccount = "aihot.anysearch"
-    private static let tavilyAccount = "aihot.tavily"
-
     private static func account(for chatProtocol: AIChatProtocol) -> String {
         switch chatProtocol {
         case .anthropicMessages: return "aihot.aichat.anthropic"
         case .openAICompatible: return "aihot.aichat.openai"
+        }
+    }
+
+    /// 搜索工具的 account。**anySearch / tavily 沿用旧常量的值** ——
+    /// 老用户已经把 Key 存在这两个 account 下，换名字等于让他们重填。
+    private static func searchAccount(for provider: AppSettings.SearchToolProvider) -> String {
+        switch provider {
+        case .anySearch: return "aihot.anysearch"
+        case .tavily: return "aihot.tavily"
+        case .serpapi: return "aihot.serpapi"
+        case .exa: return "aihot.exa"
+        case .serper: return "aihot.serper"
         }
     }
 

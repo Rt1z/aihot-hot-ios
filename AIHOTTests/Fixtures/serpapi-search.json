@@ -1,0 +1,316 @@
+{
+  "search_metadata": {
+    "id": "6acdec05dd703c755e241dcc",
+    "status": "Success",
+    "json_endpoint": "https://serpapi.com/searches/7zXHSb_RNcf0aKr43OzzqCxoRE33Y3ii8CthtQPF_NI/6acdec05dd703c755e241dcc.json",
+    "markdown_endpoint": "https://serpapi.com/searches/7zXHSb_RNcf0aKr43OzzqCxoRE33Y3ii8CthtQPF_NI/6acdec05dd703c755e241dcc.md",
+    "pixel_position_endpoint": "https://serpapi.com/searches/7zXHSb_RNcf0aKr43OzzqCxoRE33Y3ii8CthtQPF_NI/6acdec05dd703c755e241dcc.json_with_pixel_position",
+    "created_at": "2026-10-13 08:29:57 UTC",
+    "processed_at": "2026-10-13 08:29:57 UTC",
+    "google_url": "https://www.google.com/search?q=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F&oq=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F&sourceid=chrome&ie=UTF-8",
+    "raw_html_file": "https://serpapi.com/searches/7zXHSb_RNcf0aKr43OzzqCxoRE33Y3ii8CthtQPF_NI/6acdec05dd703c755e241dcc.html",
+    "total_time_taken": 0.29
+  },
+  "search_parameters": {
+    "engine": "google",
+    "q": "Karpathy 认知鸿沟",
+    "google_domain": "google.com",
+    "device": "desktop"
+  },
+  "search_information": {
+    "query_displayed": "Karpathy 认知鸿沟",
+    "total_results": 28,
+    "time_taken_displayed": 0.17,
+    "organic_results_state": "Results for exact spelling"
+  },
+  "ai_overview": {
+    "page_token": "0EQ2XHiczZVdkqo4FMcXMOvAl2kVP1u7irp1ElDx60qr7dgvFAIdUBEkKq1vdy-zjdnIrGYCiqKtdk8_TE2qICQ5OTmH5Jf_rz_n9mL2929_WauVR5-y2SAIMsR1ydzM6K6T1eh2oWff3Dn1desHdde-btqGoFu-65ip7UYopHQq8CnTFpC562quORC7Lctud3rl7npQUSqpyIWgTjRqTtkK71OaVbPsNeMKImtkaMZcZNS-1lpMJ-lKlWbyfL6Q-ZnVHGYA_2EhEijszb5mIN0xA_QldxLzgeSEJ_kw79QTpoejIcBhbw3CCK47i-zYsBK6jb7VacOpBwDd2P-dYJpnCQyjGiESBYOPHr9c9uboGCz-3Piy7OfW4mbnC1PCQoJEAxPAYgABoDiA89-HTwPHsWghgiriFAaWNLwXOItjCGgnw0wm9-0AWmD3IPaGqKiAlDUIO8F8duKzKpe1dUuPPnwaHmw8qPJuvVwwXxbiuGx3Xe9RVILdOr3slIEaapDVJ8xu7mqGaaiWyv-I2rl87rFa5sulh4gonR6Rokmk-H6jtU23FnKzmGlnUC7mCSeP33lSCNxrWeJwj-SbW9yUrx5ZhE-nUTksKcMzwDbsT9CFp_w-lEOfDI0OoACfOY3tCVzyRC5NYp72e6Hs11YOCSY8IjuRETrL7ueHbPDHFGU5vpskiI4kIsc4Li4PRbITK-DLQ8patiWFNeMJt4m9DymAmOgWYA1L9in240yMQT5cWbHT-Ld3kovILoSGHZAlZtvv1y1AcaDhZPabInMcXghn7Ck3LqSALTS6c0neLfhTmiKrGJwLDpL8NOjrrFXC_HY0ost-156NpU162VLwoqpc58V1Jv9Cg_T_F1GxQikHhbpJFPoSUUyhyAeFIsfR8JVUqJComqIoN4iq7YmKFSr8jhWqF_s_BfkhxWaCKBKEayFyS6G-QRS-R9RRha4QVbtOlHeTqEihEkThxvu5QiX9nBTqRNQ3FAp_V6EiwMx9dS5X6ym5KVuSM39s9G2nJlbK64b08qI4sJYafO1t_LlsvTmrJ0cz5g-qbTyhfHO1NR5U1uE-mUZqKbQ039NW1vZ3TqpwIHFQ5KRHrlrjoMRJVQ5VOFTjpDKH8qwz5cx9V-C1soVQ3_Dalr-yDK0gtt2Ouc0P-bcp6fMvhd3gudtb1jVx-vJuWf5k0x215LG4o7K2ao3w2DCKu10vPZuQnP28Rt573R_3bXlYSoOXtp71uv-8mc8sSlXd22leu-sP4bWX419JThU7c2_eNyty_7VX-WNXEnNlY6hHgVFhMHptbgZ-2QvklOPrAtvrIoGuAiMALTyRTYLYxrCH1W1Wt10ESmMMihhSnqK6ppp0I1RLWqGaL-rV3MScFPOTlENWW0-o8im68IXcPx05UAA",
+    "serpapi_link": "https://serpapi.com/search.json?engine=google_ai_overview&page_token=0EQ2XHiczZVdkqo4FMcXMOvAl2kVP1u7irp1ElDx60qr7dgvFAIdUBEkKq1vdy-zjdnIrGYCiqKtdk8_TE2qICQ5OTmH5Jf_rz_n9mL2929_WauVR5-y2SAIMsR1ydzM6K6T1eh2oWff3Dn1desHdde-btqGoFu-65ip7UYopHQq8CnTFpC562quORC7Lctud3rl7npQUSqpyIWgTjRqTtkK71OaVbPsNeMKImtkaMZcZNS-1lpMJ-lKlWbyfL6Q-ZnVHGYA_2EhEijszb5mIN0xA_QldxLzgeSEJ_kw79QTpoejIcBhbw3CCK47i-zYsBK6jb7VacOpBwDd2P-dYJpnCQyjGiESBYOPHr9c9uboGCz-3Piy7OfW4mbnC1PCQoJEAxPAYgABoDiA89-HTwPHsWghgiriFAaWNLwXOItjCGgnw0wm9-0AWmD3IPaGqKiAlDUIO8F8duKzKpe1dUuPPnwaHmw8qPJuvVwwXxbiuGx3Xe9RVILdOr3slIEaapDVJ8xu7mqGaaiWyv-I2rl87rFa5sulh4gonR6Rokmk-H6jtU23FnKzmGlnUC7mCSeP33lSCNxrWeJwj-SbW9yUrx5ZhE-nUTksKcMzwDbsT9CFp_w-lEOfDI0OoACfOY3tCVzyRC5NYp72e6Hs11YOCSY8IjuRETrL7ueHbPDHFGU5vpskiI4kIsc4Li4PRbITK-DLQ8patiWFNeMJt4m9DymAmOgWYA1L9in240yMQT5cWbHT-Ld3kovILoSGHZAlZtvv1y1AcaDhZPabInMcXghn7Ck3LqSALTS6c0neLfhTmiKrGJwLDpL8NOjrrFXC_HY0ost-156NpU162VLwoqpc58V1Jv9Cg_T_F1GxQikHhbpJFPoSUUyhyAeFIsfR8JVUqJComqIoN4iq7YmKFSr8jhWqF_s_BfkhxWaCKBKEayFyS6G-QRS-R9RRha4QVbtOlHeTqEihEkThxvu5QiX9nBTqRNQ3FAp_V6EiwMx9dS5X6ym5KVuSM39s9G2nJlbK64b08qI4sJYafO1t_LlsvTmrJ0cz5g-qbTyhfHO1NR5U1uE-mUZqKbQ039NW1vZ3TqpwIHFQ5KRHrlrjoMRJVQ5VOFTjpDKH8qwz5cx9V-C1soVQ3_Dalr-yDK0gtt2Ouc0P-bcp6fMvhd3gudtb1jVx-vJuWf5k0x215LG4o7K2ao3w2DCKu10vPZuQnP28Rt573R_3bXlYSoOXtp71uv-8mc8sSlXd22leu-sP4bWX419JThU7c2_eNyty_7VX-WNXEnNlY6hHgVFhMHptbgZ-2QvklOPrAtvrIoGuAiMALTyRTYLYxrCH1W1Wt10ESmMMihhSnqK6ppp0I1RLWqGaL-rV3MScFPOTlENWW0-o8im68IXcPx05UAA"
+  },
+  "organic_results": [
+    {
+      "position": 1,
+      "title": "https://news.qq.com/rain/a/20251209A04T2S00",
+      "link": "https://news.qq.com/rain/a/20251209A04T2S00",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESZgHrOzAVICabEQxwaqef78qxGT_tti-o7HWjI4PQXInyNZR5tHQZ9yi7bEdEGK0ouoDg4mpzrwxdiKUsI6gBpwRUp9iyy32hB-Ej3iKBdRDPfQ1BlrXS2NZ9G7kf0E4NylIrapE-hg&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECA0QAQ&uoh=1",
+      "displayed_link": "https://news.qq.com › rain",
+      "favicon": "https://serpapi.com/images/i/UklGRrwBAABXRUJQVlA4ILABAAAQCQCdASogACAAPrUurVanIacnG_DgFolsAJ0vd_qvCGbumAXWEEAuwDeUP2L9IyJxMsKYD2zdrh7Qwwvi7tVeNfxm_DPFn8aqChjG9TWf14AA_v7DlYh8_i2VQM_YzsVQr7U28V1EK--EEUcA6qTdxi9QoXLkYCKHN47-l0Z6HUopb6P604CZOZXrN6Dbe_7vB9DPc7QPxHIW5f8NDj0x6Hjl-n_b_9NbeeR0_k67yVvdRf-KrKW2UfQmScIiE4ANcw7wukH7VQ4lgswNWmKSocUoHRyYAnfaYnbSyh_xcU6QSG6gnvhL8SIAxYkiFDy7hYgd2eyu0nMroQK72OeyCskzhTUAvR5QJj-0eXrywW5IKU64nuM4tfLRtYj4EAN7AWRTtcfw3DWsU2reLXUnIAMRMuYBza3sNh3dAyKf3wx6whEW1nYyIlkYPEBJbx8yOGf-TOOhiYBl-TXotEZRzn-3_0xTNRAbsu01tI_YMKGqdRh7Z8QtOXFfoyE_2YeKP8dvzGc0Qjr2-DBgP9h3uL8zrDiir3GxBs-ArXTzq3gAUFvOf-xb-MaA104AAAA.webp",
+      "about_this_result": {
+        "source": {
+          "source_info_link": "https://news.qq.com/rain/a/20251209A04T2S00",
+          "icon": "https://serpapi.com/images/i/UklGRrwBAABXRUJQVlA4ILABAAAQCQCdASogACAAPrUurVanIacnG_DgFolsAJ0vd_qvCGbumAXWEEAuwDeUP2L9IyJxMsKYD2zdrh7Qwwvi7tVeNfxm_DPFn8aqChjG9TWf14AA_v7DlYh8_i2VQM_YzsVQr7U28V1EK--EEUcA6qTdxi9QoXLkYCKHN47-l0Z6HUopb6P604CZOZXrN6Dbe_7vB9DPc7QPxHIW5f8NDj0x6Hjl-n_b_9NbeeR0_k67yVvdRf-KrKW2UfQmScIiE4ANcw7wukH7VQ4lgswNWmKSocUoHRyYAnfaYnbSyh_xcU6QSG6gnvhL8SIAxYkiFDy7hYgd2eyu0nMroQK72OeyCskzhTUAvR5QJj-0eXrywW5IKU64nuM4tfLRtYj4EAN7AWRTtcfw3DWsU2reLXUnIAMRMuYBza3sNh3dAyKf3wx6whEW1nYyIlkYPEBJbx8yOGf-TOOhiYBl-TXotEZRzn-3_0xTNRAbsu01tI_YMKGqdRh7Z8QtOXFfoyE_2YeKP8dvzGc0Qjr2-DBgP9h3uL8zrDiir3GxBs-ArXTzq3gAUFvOf-xb-MaA104AAAA.webp"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CpgBL2dvdG8_dXJsPUNBRVNaZ0hyT3pBVklDYWJFUXh3YXFlZjc4cXhHVF90dGktbzdIV2pJNFBRWElueU5aUjV0SFFaOXlpN2JFZEVHSzBvdW9EZzRtcHpyd3hkaUtVc0k2Z0Jwd1JVcDlpeXkzMmhCLUVqM2lLQmRSRFBmUTFCbHJYUzJOWjlHN2tmMEU0TnlsSXJhcEUtaGcSBBoCCAAajgISABoAIgAqADIGCAMSAnVzOgBCBAgCEBBKAFoAcgB6AIJA6gEIEBAAGAAgACoPCghrYXJwYXRoeRUAAAAAKg8KA-iupBUAAAAAGgPoqo0qCgoD55-lFQAAAAAqFQoG6bi_5rKfFQAAAAAaBum0u-a6nTKYAS9nb3RvP3VybD1DQUVTWmdIck96QVZJQ2FiRVF4d2FxZWY3OHF4R1RfdHRpLW83SFdqSTRQUVhJbnlOWlI1dEhRWjl5aTdiRWRFR0swb3VvRGc0bXB6cnd4ZGlLVXNJNmdCcHdSVXA5aXl5MzJoQi1FajNpS0JkUkRQZlExQmxyWFMyTlo5RzdrZjBFNE55bElyYXBFLWhnOgAiAhABSABYAGgA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CpgBL2dvdG8_dXJsPUNBRVNaZ0hyT3pBVklDYWJFUXh3YXFlZjc4cXhHVF90dGktbzdIV2pJNFBRWElueU5aUjV0SFFaOXlpN2JFZEVHSzBvdW9EZzRtcHpyd3hkaUtVc0k2Z0Jwd1JVcDlpeXkzMmhCLUVqM2lLQmRSRFBmUTFCbHJYUzJOWjlHN2tmMEU0TnlsSXJhcEUtaGcSBBoCCAAajgISABoAIgAqADIGCAMSAnVzOgBCBAgCEBBKAFoAcgB6AIJA6gEIEBAAGAAgACoPCghrYXJwYXRoeRUAAAAAKg8KA-iupBUAAAAAGgPoqo0qCgoD55-lFQAAAAAqFQoG6bi_5rKfFQAAAAAaBum0u-a6nTKYAS9nb3RvP3VybD1DQUVTWmdIck96QVZJQ2FiRVF4d2FxZWY3OHF4R1RfdHRpLW83SFdqSTRQUVhJbnlOWlI1dEhRWjl5aTdiRWRFR0swb3VvRGc0bXB6cnd4ZGlLVXNJNmdCcHdSVXA5aXl5MzJoQi1FajNpS0JkUkRQZlExQmxyWFMyTlo5RzdrZjBFNE55bElyYXBFLWhnOgAiAhABSABYAGgA",
+      "source": "腾讯新闻"
+    },
+    {
+      "position": 2,
+      "title": "https://news.cnblogs.com/n/599855/",
+      "link": "https://news.cnblogs.com/n/599855/",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESXQHrOzAV6IHmgFjqBimH8X6KarBnx127lzW2sYw0jbD5X3SnRut0yK0udR-MB54Xy6RpnVMkalnjXbYpG2NNoKywUQWTVu1M0UP8YLpGWdJKRb6nifDPAxyJGA_DLw&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECBQQAQ&uoh=1",
+      "displayed_link": "https://news.cnblogs.com › ...",
+      "favicon": "https://serpapi.com/images/i/UklGRpoBAABXRUJQVlA4II4BAABwCQCdASogACAAPrUurVanIacnG_DgFolsAJ0yhHT2gzgQYDbAXaB0FPrAeUBEgjAO1-MpVdtz_Zvkw_qxKfLDvjChqIK_lK-tR89oRDKMK69qboAA_v7DUFnqY0ta7FopELaA_NOYeUhgGB5D0uEZa5lgTxguVkWvjXSsSZWh51Q1n-y8dccPxwFJD9hRsvEF_Ar9IX4KONegrpuljxInhx-BG-HQ_CqBs-BGM1jnKZXXsdbzlMVmF__pij4erFeMrGLpX5pAvwh7IzzVuAFnp29TKcThBlKPg_VMLF5aFO5MuxSscp3tlokjF06NfaPnFOOQac11uuZ0Xdq3fJaEBW3mpV10HsjMup3d0gaivF42cl3jxxDEle1NiL_H629HsWwje6KG5RH2IEH7bVYxqpWZiFpUESOTWVeun4tXXHqlCRov-kqQK_VubCiU4j9vtQ0I_zPUGcS2IaSRpdV3R5-FYC4WbIKvrkx08ubvWHW1frKBajhifOXZv9wbsI1AX4O9nhNUxR0qXNAAAA.webp",
+      "snippet": "No information is available for this page.",
+      "about_this_result": {
+        "source": {
+          "source_info_link": "https://news.cnblogs.com/n/599855/",
+          "icon": "https://serpapi.com/images/i/UklGRpoBAABXRUJQVlA4II4BAABwCQCdASogACAAPrUurVanIacnG_DgFolsAJ0yhHT2gzgQYDbAXaB0FPrAeUBEgjAO1-MpVdtz_Zvkw_qxKfLDvjChqIK_lK-tR89oRDKMK69qboAA_v7DUFnqY0ta7FopELaA_NOYeUhgGB5D0uEZa5lgTxguVkWvjXSsSZWh51Q1n-y8dccPxwFJD9hRsvEF_Ar9IX4KONegrpuljxInhx-BG-HQ_CqBs-BGM1jnKZXXsdbzlMVmF__pij4erFeMrGLpX5pAvwh7IzzVuAFnp29TKcThBlKPg_VMLF5aFO5MuxSscp3tlokjF06NfaPnFOOQac11uuZ0Xdq3fJaEBW3mpV10HsjMup3d0gaivF42cl3jxxDEle1NiL_H629HsWwje6KG5RH2IEH7bVYxqpWZiFpUESOTWVeun4tXXHqlCRov-kqQK_VubCiU4j9vtQ0I_zPUGcS2IaSRpdV3R5-FYC4WbIKvrkx08ubvWHW1frKBajhifOXZv9wbsI1AX4O9nhNUxR0qXNAAAA.webp"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CowBL2dvdG8_dXJsPUNBRVNYUUhyT3pBVjZJSG1nRmpxQmltSDhYNkthckJueDEyN2x6VzJzWXcwamJENVgzU25SdXQweUswdWRSLU1CNTRYeTZScG5WTWthbG5qWGJZcEcyTk5vS3l3VVFXVFZ1MU0wVVA4WUxwR1dkSktSYjZuaWZEUEF4eUpHQV9ETHcSBBoCCAAahAISAggAGgAiACoAMgYIAxICdXM6AEIECAEQEEoAWgByAHoAgkDeAQgQEAAYACAAKg8KCGthcnBhdGh5FQAAAAAqDwoD6K6kFQAAAAAaA-iqjSoKCgPnn6UVAAAAACoVCgbpuL_msp8VAAAAABoG6bS75rqdMowBL2dvdG8_dXJsPUNBRVNYUUhyT3pBVjZJSG1nRmpxQmltSDhYNkthckJueDEyN2x6VzJzWXcwamJENVgzU25SdXQweUswdWRSLU1CNTRYeTZScG5WTWthbG5qWGJZcEcyTk5vS3l3VVFXVFZ1MU0wVVA4WUxwR1dkSktSYjZuaWZEUEF4eUpHQV9ETHc6ACICEAFIAFgAaAA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CowBL2dvdG8_dXJsPUNBRVNYUUhyT3pBVjZJSG1nRmpxQmltSDhYNkthckJueDEyN2x6VzJzWXcwamJENVgzU25SdXQweUswdWRSLU1CNTRYeTZScG5WTWthbG5qWGJZcEcyTk5vS3l3VVFXVFZ1MU0wVVA4WUxwR1dkSktSYjZuaWZEUEF4eUpHQV9ETHcSBBoCCAAahAISAggAGgAiACoAMgYIAxICdXM6AEIECAEQEEoAWgByAHoAgkDeAQgQEAAYACAAKg8KCGthcnBhdGh5FQAAAAAqDwoD6K6kFQAAAAAaA-iqjSoKCgPnn6UVAAAAACoVCgbpuL_msp8VAAAAABoG6bS75rqdMowBL2dvdG8_dXJsPUNBRVNYUUhyT3pBVjZJSG1nRmpxQmltSDhYNkthckJueDEyN2x6VzJzWXcwamJENVgzU25SdXQweUswdWRSLU1CNTRYeTZScG5WTWthbG5qWGJZcEcyTk5vS3l3VVFXVFZ1MU0wVVA4WUxwR1dkSktSYjZuaWZEUEF4eUpHQV9ETHc6ACICEAFIAFgAaAA",
+      "source": "博客园"
+    },
+    {
+      "position": 3,
+      "title": "Karpathy：80 亿人被AI 认知鸿沟分成四个层级",
+      "link": "https://ai-daily-beacon.up.railway.app/zh/article/aHR0cHM6Ly9haWhvdC5uZXdzL2l0ZW1zL2xmOTJxY3p1azl4eW",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESnwEB6zswFeuoGDFyLuPCXM4Luwi5flD9cPSs0zRkkfE24hKyIu-vhHWUoZ5bqcw_LTrI-Ry5cdMsGVE1RY-vpgJWuKLrbLkGsYn60akhKcgdfj1knFgBxU92leh7zwMjfBytZS4l5G0R1rNGfv_cOl7FkajM8EjYqSpEbL4J7Xs4QE9jBGhiInllbzTwR_Y5fneH6atN2GLgVPaHvsQa-eQ&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECBMQAQ&uoh=1",
+      "displayed_link": "https://ai-daily-beacon.up.railway.app › ...",
+      "date": "1 day ago",
+      "snippet": "作者引用Karpathy 的分析，认为全球约80 亿人因对大模型能力的接触程度不同被分成四层。约60 亿人几乎没接触过大模型，10 到20 亿人偶尔用免费版 ...",
+      "snippet_highlighted_words": [
+        "Karpathy"
+      ],
+      "about_this_result": {
+        "source": {
+          "description": "作者引用Karpathy 的分析，认为全球约80 亿人因对大模型能力的接触程度不同被分成四层。约60 亿人几乎没接触过大模型，10 到20 亿人偶尔用免费版 ...",
+          "source_info_link": "https://ai-daily-beacon.up.railway.app/zh/article/aHR0cHM6Ly9haWhvdC5uZXdzL2l0ZW1zL2xmOTJxY3p1azl4eW"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CuUBL2dvdG8_dXJsPUNBRVNud0VCNnpzd0ZldW9HREZ5THVQQ1hNNEx1d2k1ZmxEOWNQU3MwelJra2ZFMjRoS3lJdS12aEhXVW9aNWJxY3dfTFRySS1SeTVjZE1zR1ZFMVJZLXZwZ0pXdUtMcmJMa0dzWW42MGFraEtjZ2RmajFrbkZnQnhVOTJsZWg3endNamZCeXRaUzRsNUcwUjFyTkdmdl9jT2w3Rmthak04RWpZcVNwRWJMNEo3WHM0UUU5akJHaGlJbmxsYnpUd1JfWTVmbmVINmF0TjJHTGdWUGFIdnNRYS1lURIEGgIIABqABRIAGgAiAggBKgAyBggDEgJ1czoAQgQIARAQSgBaAHIAegCCQNoECBAQABgAIAAqDwoIa2FycGF0aHkVsAiSQCoPCgPorqQVvI-XQBoD6KqNKgoKA-efpRW8j5dAKhUKBum4v-aynxXkwo5AGgbptLvmup0y5QEvZ290bz91cmw9Q0FFU253RUI2enN3RmV1b0dERnlMdVBDWE00THV3aTVmbEQ5Y1BTczB6UmtrZkUyNGhLeUl1LXZoSFdVb1o1YnFjd19MVHJJLVJ5NWNkTXNHVkUxUlktdnBnSld1S0xyYkxrR3NZbjYwYWtoS2NnZGZqMWtuRmdCeFU5MmxlaDd6d01qZkJ5dFpTNGw1RzBSMXJOR2Z2X2NPbDdGa2FqTThFallxU3BFYkw0SjdYczRRRTlqQkdoaUlubGxielR3Ul9ZNWZuZUg2YXROMkdMZ1ZQYUh2c1FhLWVROlA8Yj5LYXJwYXRoeTwvYj7vvJo4MCDkur_kurrooqtBSSA8Yj7orqTnn6XpuL_msp88L2I-5YiG5oiQ5Zub5Liq5bGC57qnIC0gUmFpbHdheULQAeS9nOiAheW8leeUqDxiPkthcnBhdGh5PC9iPiDnmoTliIbmnpDvvIzorqTkuLrlhajnkIPnuqY4MCDkur_kurrlm6Dlr7nlpKfmqKHlnovog73lipvnmoTmjqXop6bnqIvluqbkuI3lkIzooqvliIbmiJDlm5vlsYLjgILnuqY2MCDkur_kurrlh6DkuY7msqHmjqXop6bov4flpKfmqKHlnovvvIwxMCDliLAyMCDkur_kurrlgbblsJTnlKjlhY3otLnniYgmbmJzcDsuLi4iAhABSABYAGgA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CuUBL2dvdG8_dXJsPUNBRVNud0VCNnpzd0ZldW9HREZ5THVQQ1hNNEx1d2k1ZmxEOWNQU3MwelJra2ZFMjRoS3lJdS12aEhXVW9aNWJxY3dfTFRySS1SeTVjZE1zR1ZFMVJZLXZwZ0pXdUtMcmJMa0dzWW42MGFraEtjZ2RmajFrbkZnQnhVOTJsZWg3endNamZCeXRaUzRsNUcwUjFyTkdmdl9jT2w3Rmthak04RWpZcVNwRWJMNEo3WHM0UUU5akJHaGlJbmxsYnpUd1JfWTVmbmVINmF0TjJHTGdWUGFIdnNRYS1lURIEGgIIABqABRIAGgAiAggBKgAyBggDEgJ1czoAQgQIARAQSgBaAHIAegCCQNoECBAQABgAIAAqDwoIa2FycGF0aHkVsAiSQCoPCgPorqQVvI-XQBoD6KqNKgoKA-efpRW8j5dAKhUKBum4v-aynxXkwo5AGgbptLvmup0y5QEvZ290bz91cmw9Q0FFU253RUI2enN3RmV1b0dERnlMdVBDWE00THV3aTVmbEQ5Y1BTczB6UmtrZkUyNGhLeUl1LXZoSFdVb1o1YnFjd19MVHJJLVJ5NWNkTXNHVkUxUlktdnBnSld1S0xyYkxrR3NZbjYwYWtoS2NnZGZqMWtuRmdCeFU5MmxlaDd6d01qZkJ5dFpTNGw1RzBSMXJOR2Z2X2NPbDdGa2FqTThFallxU3BFYkw0SjdYczRRRTlqQkdoaUlubGxielR3Ul9ZNWZuZUg2YXROMkdMZ1ZQYUh2c1FhLWVROlA8Yj5LYXJwYXRoeTwvYj7vvJo4MCDkur_kurrooqtBSSA8Yj7orqTnn6XpuL_msp88L2I-5YiG5oiQ5Zub5Liq5bGC57qnIC0gUmFpbHdheULQAeS9nOiAheW8leeUqDxiPkthcnBhdGh5PC9iPiDnmoTliIbmnpDvvIzorqTkuLrlhajnkIPnuqY4MCDkur_kurrlm6Dlr7nlpKfmqKHlnovog73lipvnmoTmjqXop6bnqIvluqbkuI3lkIzooqvliIbmiJDlm5vlsYLjgILnuqY2MCDkur_kurrlh6DkuY7msqHmjqXop6bov4flpKfmqKHlnovvvIwxMCDliLAyMCDkur_kurrlgbblsJTnlKjlhY3otLnniYgmbmJzcDsuLi4iAhABSABYAGgA",
+      "source": "Railway",
+      "read_more_link": "https://ai-daily-beacon.up.railway.app/zh/article/aHR0cHM6Ly9haWhvdC5uZXdzL2l0ZW1zL2xmOTJxY3p1azl4eW#:~:text=%E4%BD%9C%E8%80%85%E5%BC%95%E7%94%A8Karpathy%20%E7%9A%84%E5%88%86%E6%9E%90%EF%BC%8C%E8%AE%A4%E4%B8%BA%E5%85%A8%E7%90%83%E7%BA%A680%20%E4%BA%BF%E4%BA%BA%E5%9B%A0%E5%AF%B9%E5%A4%A7%E6%A8%A1%E5%9E%8B%E8%83%BD%E5%8A%9B%E7%9A%84%E6%8E%A5%E8%A7%A6%E7%A8%8B%E5%BA%A6%E4%B8%8D%E5%90%8C%E8%A2%AB%E5%88%86%E6%88%90%E5%9B%9B%E5%B1%82%E3%80%82%E7%BA%A660%20%E4%BA%BF%E4%BA%BA%E5%87%A0%E4%B9%8E%E6%B2%A1%E6%8E%A5%E8%A7%A6%E8%BF%87%E5%A4%A7%E6%A8%A1%E5%9E%8B%EF%BC%8C10%20%E5%88%B020,%E4%BA%BF%E4%BA%BA%E5%81%B6%E5%B0%94%E7%94%A8%E5%85%8D%E8%B4%B9%E7%89%88"
+    },
+    {
+      "position": 4,
+      "title": "Karpathy：公众低估LLM 能力的鸿沟仍在扩大 - feeds - froQ",
+      "link": "https://feeds.froq.me/items/karpathy-llm-capability-perception-gap",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESfQHrOzAVlNmpe4VltmmZc-aQTyYhsp7rWxjmcZszA812v5bWpiqQ34eC9aeIA0MpG3uPI2Hdey5utNpnubVuM9rlmzF99HlP-TFHd5RdNQxdcerFhyC3x2PQjWfOmj_0zNRonXudi0o-bfwocaQI9tOpI6ZyEoWY2rTG_8ig&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECBEQAQ&uoh=1",
+      "displayed_link": "https://feeds.froq.me › items › karp...",
+      "date": "2 days ago",
+      "snippet": "Andrej Karpathy 在X 发帖称，约75 亿人仍严重低估当前LLM 能力，行业内外对模型边界的共识差距在拉大而非缩小。",
+      "snippet_highlighted_words": [
+        "Karpathy"
+      ],
+      "about_this_result": {
+        "source": {
+          "description": "Andrej Karpathy 在X 发帖称，约75 亿人仍严重低估当前LLM 能力，行业内外对模型边界的共识差距在拉大而非缩小。",
+          "source_info_link": "https://feeds.froq.me/items/karpathy-llm-capability-perception-gap"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CrYBL2dvdG8_dXJsPUNBRVNmUUhyT3pBVmxObXBlNFZsdG1tWmMtYVFUeVloc3A3cld4am1jWnN6QTgxMnY1YldwaXFRMzRlQzlhZUlBME1wRzN1UEkySGRleTV1dE5wbnViVnVNOXJsbXpGOTlIbFAtVEZIZDVSZE5ReGRjZXJGaHlDM3gyUFFqV2ZPbWpfMHpOUm9uWHVkaTBvLWJmd29jYVFJOXRPcEk2WnlFb1dZMnJUR184aWcSBBoCCAAanAQSABoAIgIIASoAMgYIAxICdXM6AEIECAEQEEoAWgByAHoAgkD2AwgQEAAYACAAKg8KCGthcnBhdGh5FarFYEAqDwoD6K6kFQAAAAAaA-iqjSoKCgPnn6UVAAAAACoVCgbpuL_msp8VV2IcQBoG6bS75rqdMrYBL2dvdG8_dXJsPUNBRVNmUUhyT3pBVmxObXBlNFZsdG1tWmMtYVFUeVloc3A3cld4am1jWnN6QTgxMnY1YldwaXFRMzRlQzlhZUlBME1wRzN1UEkySGRleTV1dE5wbnViVnVNOXJsbXpGOTlIbFAtVEZIZDVSZE5ReGRjZXJGaHlDM3gyUFFqV2ZPbWpfMHpOUm9uWHVkaTBvLWJmd29jYVFJOXRPcEk2WnlFb1dZMnJUR184aWc6UzxiPkthcnBhdGh5PC9iPu-8muWFrOS8l-S9juS8sExMTSDog73lipvnmoQ8Yj7puL_msp88L2I-5LuN5Zyo5omp5aSnIC0gZmVlZHMgLSBmcm9RQpgBQW5kcmVqIDxiPkthcnBhdGh5PC9iPiDlnKhYIOWPkeW4luensO-8jOe6pjc1IOS6v-S6uuS7jeS4pemHjeS9juS8sOW9k-WJjUxMTSDog73lipvvvIzooYzkuJrlhoXlpJblr7nmqKHlnovovrnnlYznmoTlhbHor4blt67ot53lnKjmi4nlpKfogIzpnZ7nvKnlsI_jgIIiAhABSABYAGgA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CrYBL2dvdG8_dXJsPUNBRVNmUUhyT3pBVmxObXBlNFZsdG1tWmMtYVFUeVloc3A3cld4am1jWnN6QTgxMnY1YldwaXFRMzRlQzlhZUlBME1wRzN1UEkySGRleTV1dE5wbnViVnVNOXJsbXpGOTlIbFAtVEZIZDVSZE5ReGRjZXJGaHlDM3gyUFFqV2ZPbWpfMHpOUm9uWHVkaTBvLWJmd29jYVFJOXRPcEk2WnlFb1dZMnJUR184aWcSBBoCCAAanAQSABoAIgIIASoAMgYIAxICdXM6AEIECAEQEEoAWgByAHoAgkD2AwgQEAAYACAAKg8KCGthcnBhdGh5FarFYEAqDwoD6K6kFQAAAAAaA-iqjSoKCgPnn6UVAAAAACoVCgbpuL_msp8VV2IcQBoG6bS75rqdMrYBL2dvdG8_dXJsPUNBRVNmUUhyT3pBVmxObXBlNFZsdG1tWmMtYVFUeVloc3A3cld4am1jWnN6QTgxMnY1YldwaXFRMzRlQzlhZUlBME1wRzN1UEkySGRleTV1dE5wbnViVnVNOXJsbXpGOTlIbFAtVEZIZDVSZE5ReGRjZXJGaHlDM3gyUFFqV2ZPbWpfMHpOUm9uWHVkaTBvLWJmd29jYVFJOXRPcEk2WnlFb1dZMnJUR184aWc6UzxiPkthcnBhdGh5PC9iPu-8muWFrOS8l-S9juS8sExMTSDog73lipvnmoQ8Yj7puL_msp88L2I-5LuN5Zyo5omp5aSnIC0gZmVlZHMgLSBmcm9RQpgBQW5kcmVqIDxiPkthcnBhdGh5PC9iPiDlnKhYIOWPkeW4luensO-8jOe6pjc1IOS6v-S6uuS7jeS4pemHjeS9juS8sOW9k-WJjUxMTSDog73lipvvvIzooYzkuJrlhoXlpJblr7nmqKHlnovovrnnlYznmoTlhbHor4blt67ot53lnKjmi4nlpKfogIzpnZ7nvKnlsI_jgIIiAhABSABYAGgA",
+      "source": "froq.me"
+    },
+    {
+      "position": 5,
+      "title": "Karpathy：LLM 能力认知鸿沟正扩大为漏斗，仅约0.2% 的 ...",
+      "link": "https://ai-daily-beacon.up.railway.app/zh/article/aHR0cHM6Ly9haWhvdC5uZXdzL2l0ZW1zL2Y1NzJmOTBvYzExem",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESnwEB6zswFQRrP_FtO-oDFME4yU_LsUTUP1TlTF7ZYyPTswfkMxMHrIxrIIEY8W7UzbogneQl7X1m2R1tk9JZCUQM-apzJCOLhjq53hq8RRC4AeAdgtyRuvfmeffXle5I09Jfu7I-Yk_sZDBSnnvC9ykvJQfJI9mqylT1JlqYv8FJgq84Yu-mLt2zwrlzYg3tuDWu0R4axXAbKRuWkRFOXA4&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECBoQAQ&uoh=1",
+      "displayed_link": "https://ai-daily-beacon.up.railway.app › ...",
+      "date": "2 days ago",
+      "snippet": "Andrej Karpathy 重发并扩展其4 月的观点，认为外界对LLM 能力的共识差距正从“两群人各说各话”变成一个急剧收窄的漏斗。",
+      "snippet_highlighted_words": [
+        "Karpathy"
+      ],
+      "about_this_result": {
+        "source": {
+          "description": "Andrej Karpathy 重发并扩展其4 月的观点，认为外界对LLM 能力的共识差距正从“两群人各说各话”变成一个急剧收窄的漏斗。",
+          "source_info_link": "https://ai-daily-beacon.up.railway.app/zh/article/aHR0cHM6Ly9haWhvdC5uZXdzL2l0ZW1zL2Y1NzJmOTBvYzExem"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CuUBL2dvdG8_dXJsPUNBRVNud0VCNnpzd0ZRUnJQX0Z0Ty1vREZNRTR5VV9Mc1VUVVAxVGxURjdaWXlQVHN3ZmtNeE1Ickl4cklJRVk4VzdVemJvZ25lUWw3WDFtMlIxdGs5SlpDVVFNLWFwekpDT0xoanE1M2hxOFJSQzRBZUFkZ3R5UnV2Zm1lZmZYbGU1STA5SmZ1N0ktWWtfc1pEQlNubnZDOXlrdkpRZkpJOW1xeWxUMUpscVl2OEZKZ3E4NFl1LW1MdDJ6d3JsellnM3R1RFd1MFI0YXhYQWJLUnVXa1JGT1hBNBIEGgIIABrjBBIAGgAiAggBKgAyBggDEgJ1czoAQgQIARAQSgBaAHIAegCCQL0ECBAQABgAIAAqDwoIa2FycGF0aHkVQd6eQCoPCgPorqQVyjyOQBoD6KqNKgoKA-efpRXKPI5AKhUKBum4v-aynxXKPI5AGgbptLvmup0y5QEvZ290bz91cmw9Q0FFU253RUI2enN3RlFSclBfRnRPLW9ERk1FNHlVX0xzVVRVUDFUbFRGN1pZeVBUc3dma014TUhySXhySUlFWThXN1V6Ym9nbmVRbDdYMW0yUjF0azlKWkNVUU0tYXB6SkNPTGhqcTUzaHE4UlJDNEFlQWRndHlSdXZmbWVmZlhsZTVJMDlKZnU3SS1Za19zWkRCU25udkM5eWt2SlFmSkk5bXF5bFQxSmxxWXY4RkpncTg0WXUtbUx0Mnp3cmx6WWczdHVEV3UwUjRheFhBYktSdVdrUkZPWEE0Olw8Yj5LYXJwYXRoeTwvYj7vvJpMTE0g6IO95YqbPGI-6K6k55-l6bi_5rKfPC9iPuato-aJqeWkp-S4uua8j-aWl--8jOS7hee6pjAuMiUg55qE5LiT5LiaIC4uLkKnAUFuZHJlaiA8Yj5LYXJwYXRoeTwvYj4g6YeN5Y-R5bm25omp5bGV5YW2NCDmnIjnmoTop4LngrnvvIzorqTkuLrlpJbnlYzlr7lMTE0g6IO95Yqb55qE5YWx6K-G5beu6Led5q2j5LuO4oCc5Lik576k5Lq65ZCE6K-05ZCE6K-d4oCd5Y-Y5oiQ5LiA5Liq5oCl5Ymn5pS256qE55qE5ryP5paX44CCIgIQAUgAWABoAA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CuUBL2dvdG8_dXJsPUNBRVNud0VCNnpzd0ZRUnJQX0Z0Ty1vREZNRTR5VV9Mc1VUVVAxVGxURjdaWXlQVHN3ZmtNeE1Ickl4cklJRVk4VzdVemJvZ25lUWw3WDFtMlIxdGs5SlpDVVFNLWFwekpDT0xoanE1M2hxOFJSQzRBZUFkZ3R5UnV2Zm1lZmZYbGU1STA5SmZ1N0ktWWtfc1pEQlNubnZDOXlrdkpRZkpJOW1xeWxUMUpscVl2OEZKZ3E4NFl1LW1MdDJ6d3JsellnM3R1RFd1MFI0YXhYQWJLUnVXa1JGT1hBNBIEGgIIABrjBBIAGgAiAggBKgAyBggDEgJ1czoAQgQIARAQSgBaAHIAegCCQL0ECBAQABgAIAAqDwoIa2FycGF0aHkVQd6eQCoPCgPorqQVyjyOQBoD6KqNKgoKA-efpRXKPI5AKhUKBum4v-aynxXKPI5AGgbptLvmup0y5QEvZ290bz91cmw9Q0FFU253RUI2enN3RlFSclBfRnRPLW9ERk1FNHlVX0xzVVRVUDFUbFRGN1pZeVBUc3dma014TUhySXhySUlFWThXN1V6Ym9nbmVRbDdYMW0yUjF0azlKWkNVUU0tYXB6SkNPTGhqcTUzaHE4UlJDNEFlQWRndHlSdXZmbWVmZlhsZTVJMDlKZnU3SS1Za19zWkRCU25udkM5eWt2SlFmSkk5bXF5bFQxSmxxWXY4RkpncTg0WXUtbUx0Mnp3cmx6WWczdHVEV3UwUjRheFhBYktSdVdrUkZPWEE0Olw8Yj5LYXJwYXRoeTwvYj7vvJpMTE0g6IO95YqbPGI-6K6k55-l6bi_5rKfPC9iPuato-aJqeWkp-S4uua8j-aWl--8jOS7hee6pjAuMiUg55qE5LiT5LiaIC4uLkKnAUFuZHJlaiA8Yj5LYXJwYXRoeTwvYj4g6YeN5Y-R5bm25omp5bGV5YW2NCDmnIjnmoTop4LngrnvvIzorqTkuLrlpJbnlYzlr7lMTE0g6IO95Yqb55qE5YWx6K-G5beu6Led5q2j5LuO4oCc5Lik576k5Lq65ZCE6K-05ZCE6K-d4oCd5Y-Y5oiQ5LiA5Liq5oCl5Ymn5pS256qE55qE5ryP5paX44CCIgIQAUgAWABoAA",
+      "source": "Railway",
+      "read_more_link": "https://ai-daily-beacon.up.railway.app/zh/article/aHR0cHM6Ly9haWhvdC5uZXdzL2l0ZW1zL2Y1NzJmOTBvYzExem#:~:text=Andrej%20Karpathy%20%E9%87%8D%E5%8F%91%E5%B9%B6%E6%89%A9%E5%B1%95%E5%85%B64%20%E6%9C%88%E7%9A%84%E8%A7%82%E7%82%B9%EF%BC%8C%E8%AE%A4%E4%B8%BA%E5%A4%96%E7%95%8C%E5%AF%B9LLM%20%E8%83%BD%E5%8A%9B%E7%9A%84%E5%85%B1%E8%AF%86%E5%B7%AE%E8%B7%9D%E6%AD%A3%E4%BB%8E%E2%80%9C%E4%B8%A4%E7%BE%A4%E4%BA%BA%E5%90%84%E8%AF%B4%E5%90%84%E8%AF%9D%E2%80%9D%E5%8F%98%E6%88%90%E4%B8%80%E4%B8%AA%E6%80%A5%E5%89%A7%E6%94%B6%E7%AA%84%E7%9A%84%E6%BC%8F%E6%96%97%E3%80%82"
+    },
+    {
+      "position": 6,
+      "title": "https://developer.cloud.tencent.com/article/251690...",
+      "link": "https://developer.cloud.tencent.com/article/2516900?policyId=1004",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESfAHrOzAVRFLaQ6vwlhdwmXgPg2rtedqIQTKx65vO5BA0F-q7ms4F8zXWiwmImHvnax3idFaDfBEK4VzeK8F1O31cMT12Xm4_WcGmj_cPBjAjRvIBdeljeYtH5REfh1QloNEhibH3ufEWcf6WXs2AtVDclva2FKq4_7t-K-4&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECA4QAQ&uoh=1",
+      "displayed_link": "https://developer.cloud.tencent.com › ...",
+      "favicon": "https://serpapi.com/images/i/UklGRqwBAABXRUJQVlA4IKABAACwCQCdASogACAAPtEutFooIagoGAEAGglsALElQX4BxCkJ6BSp_OpiAwwHnZ-iXeAN42_aMtHzMG74VkAh5EetuUrny4UnpOw0xs-GBdwv4N75NN4UAAD-_sIxPxN353pVWqXqTTjj_95zpGn0vKfrSyMcTygPh_HXZi2vydEvm3_O_dfPibbZCrUhjOzBZgl4UlJG6xyG7wWhMGQsbt4OmISsR3_zU_4jss7cYk1XDrz_y2AN0_-fMYJXfSARIRm9bF9TrooLkDOy2PfAGC9ZoPW5z-w21V3Ni0vUjVbMn45snmFV8c9Xk6AbjsCqQd8e4LglX6VY0GafBm3bLi6X5dxBTwvnzEJiUJ_4h1bjHy2PlxBkNJWEfMI2ss-mE73-dt4p91VoNSpHa0yj8opH5ZY3ANkoX9BhrKlsopIIj_h65wLq042BHEPyg-OXT-2IEzksmRib2fp05DbEd4a-IOVQVAlnj454mfhcn8ES3JgL7T6RYhR3OSqc4FpxsW4I7rHSR_3cR7VS68Qyq3xklcmM34dxuf5TPt9pygAAAA.webp",
+      "about_this_result": {
+        "source": {
+          "source_info_link": "https://developer.cloud.tencent.com/article/2516900?policyId=1004",
+          "icon": "https://serpapi.com/images/i/UklGRqwBAABXRUJQVlA4IKABAACwCQCdASogACAAPtEutFooIagoGAEAGglsALElQX4BxCkJ6BSp_OpiAwwHnZ-iXeAN42_aMtHzMG74VkAh5EetuUrny4UnpOw0xs-GBdwv4N75NN4UAAD-_sIxPxN353pVWqXqTTjj_95zpGn0vKfrSyMcTygPh_HXZi2vydEvm3_O_dfPibbZCrUhjOzBZgl4UlJG6xyG7wWhMGQsbt4OmISsR3_zU_4jss7cYk1XDrz_y2AN0_-fMYJXfSARIRm9bF9TrooLkDOy2PfAGC9ZoPW5z-w21V3Ni0vUjVbMn45snmFV8c9Xk6AbjsCqQd8e4LglX6VY0GafBm3bLi6X5dxBTwvnzEJiUJ_4h1bjHy2PlxBkNJWEfMI2ss-mE73-dt4p91VoNSpHa0yj8opH5ZY3ANkoX9BhrKlsopIIj_h65wLq042BHEPyg-OXT-2IEzksmRib2fp05DbEd4a-IOVQVAlnj454mfhcn8ES3JgL7T6RYhR3OSqc4FpxsW4I7rHSR_3cR7VS68Qyq3xklcmM34dxuf5TPt9pygAAAA.webp"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CrUBL2dvdG8_dXJsPUNBRVNmQUhyT3pBVlJGTGFRNnZ3bGhkd21YZ1BnMnJ0ZWRxSVFUS3g2NXZPNUJBMEYtcTdtczRGOHpYV2l3bUltSHZuYXgzaWRGYURmQkVLNFZ6ZUs4RjFPMzFjTVQxMlhtNF9XY0dtal9jUEJqQWpSdklCZGVsamVZdEg1UkVmaDFRbG9ORWhpYkgzdWZFV2NmNldYczJBdFZEY2x2YTJGS3E0Xzd0LUstNBIEGgIIABqrAhIAGgAiACoAMgYIAxICdXM6AEIECAEQEEoAWgByAHoAgkCHAggQEAAYACAAKg8KCGthcnBhdGh5FQAAAAAqDwoD6K6kFQAAAAAaA-iqjSoKCgPnn6UVAAAAACoVCgbpuL_msp8VAAAAABoG6bS75rqdMrUBL2dvdG8_dXJsPUNBRVNmQUhyT3pBVlJGTGFRNnZ3bGhkd21YZ1BnMnJ0ZWRxSVFUS3g2NXZPNUJBMEYtcTdtczRGOHpYV2l3bUltSHZuYXgzaWRGYURmQkVLNFZ6ZUs4RjFPMzFjTVQxMlhtNF9XY0dtal9jUEJqQWpSdklCZGVsamVZdEg1UkVmaDFRbG9ORWhpYkgzdWZFV2NmNldYczJBdFZEY2x2YTJGS3E0Xzd0LUstNDoAIgIQAUgAWABoAA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CrUBL2dvdG8_dXJsPUNBRVNmQUhyT3pBVlJGTGFRNnZ3bGhkd21YZ1BnMnJ0ZWRxSVFUS3g2NXZPNUJBMEYtcTdtczRGOHpYV2l3bUltSHZuYXgzaWRGYURmQkVLNFZ6ZUs4RjFPMzFjTVQxMlhtNF9XY0dtal9jUEJqQWpSdklCZGVsamVZdEg1UkVmaDFRbG9ORWhpYkgzdWZFV2NmNldYczJBdFZEY2x2YTJGS3E0Xzd0LUstNBIEGgIIABqrAhIAGgAiACoAMgYIAxICdXM6AEIECAEQEEoAWgByAHoAgkCHAggQEAAYACAAKg8KCGthcnBhdGh5FQAAAAAqDwoD6K6kFQAAAAAaA-iqjSoKCgPnn6UVAAAAACoVCgbpuL_msp8VAAAAABoG6bS75rqdMrUBL2dvdG8_dXJsPUNBRVNmQUhyT3pBVlJGTGFRNnZ3bGhkd21YZ1BnMnJ0ZWRxSVFUS3g2NXZPNUJBMEYtcTdtczRGOHpYV2l3bUltSHZuYXgzaWRGYURmQkVLNFZ6ZUs4RjFPMzFjTVQxMlhtNF9XY0dtal9jUEJqQWpSdklCZGVsamVZdEg1UkVmaDFRbG9ORWhpYkgzdWZFV2NmNldYczJBdFZEY2x2YTJGS3E0Xzd0LUstNDoAIgIQAUgAWABoAA",
+      "source": "Tencent"
+    },
+    {
+      "position": 7,
+      "title": "Andrej Karpathy Skills：AI 智能体编程四项原则介绍及扩展原创",
+      "link": "https://blog.csdn.net/liu_zhiyi/article/details/160419161",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESdAHrOzAVDumKSIJSfR5nUoidbjqkPlVeIrT00DabkZFDsegJCE0YHkoAPVJryMXgO2_NaY-IhF5Ctmad-FPxnxSubMcUc4jlKDQH8Th0Dm_8mTidvwEUKA1FL_CWkbxUw2Y9zOFw_PprJxp552M5uJ6WPJKs&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECBIQAQ&uoh=1",
+      "displayed_link": "https://blog.csdn.net › details",
+      "favicon": "https://serpapi.com/images/i/UklGRvQAAABXRUJQVlA4IOgAAADQBQCdASocABwAPtE-tFooIigoFAEAGglsALEehHVwuLQCWYN5JIjwGaesZUSaJjNYhLb8T9MwAGu_jXD1V1pC4wa9Gj_8avh_NeBQor0g_qkMflmz-50uZTTuc2HM9_-N4lrsidjnPei20YxfOcwStb0NEsOK3DiHhiu34EqqsrODKAgIfcZMlxZ5RLWl5eP_Y1Bq0MRxz0oHk1Izb7LctFhlwZBY0De1eUWtX0EdmDdlKk9n7J-Hmm_EFmcCpyp2njDk0rENBnu6tie0JL_0qieBrvXBZxWbC0fIv9ePz9j_0Mk4AAAA.webp",
+      "date": "Apr 22, 2026",
+      "snippet": "Andrej Karpathy，前特斯拉AI 总监、李飞飞学生、OpenAI 创始成员，现任AI 教育者。他最早提出了LLM 作为\"认知操作系统\"的理念，并指出当前AI 在编程 ...",
+      "snippet_highlighted_words": [
+        "Karpathy",
+        "认知"
+      ],
+      "about_this_result": {
+        "source": {
+          "description": "Andrej Karpathy，前特斯拉AI 总监、李飞飞学生、OpenAI 创始成员，现任AI 教育者。他最早提出了LLM 作为\"认知操作系统\"的理念，并指出当前AI 在编程 ...",
+          "source_info_link": "https://blog.csdn.net/liu_zhiyi/article/details/160419161",
+          "icon": "https://serpapi.com/images/i/UklGRvQAAABXRUJQVlA4IOgAAADQBQCdASocABwAPtE-tFooIigoFAEAGglsALEehHVwuLQCWYN5JIjwGaesZUSaJjNYhLb8T9MwAGu_jXD1V1pC4wa9Gj_8avh_NeBQor0g_qkMflmz-50uZTTuc2HM9_-N4lrsidjnPei20YxfOcwStb0NEsOK3DiHhiu34EqqsrODKAgIfcZMlxZ5RLWl5eP_Y1Bq0MRxz0oHk1Izb7LctFhlwZBY0De1eUWtX0EdmDdlKk9n7J-Hmm_EFmcCpyp2njDk0rENBnu6tie0JL_0qieBrvXBZxWbC0fIv9ePz9j_0Mk4AAAA.webp"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CqoBL2dvdG8_dXJsPUNBRVNkQUhyT3pBVkR1bUtTSUpTZlI1blVvaWRianFrUGxWZUlyVDAwRGFia1pGRHNlZ0pDRTBZSGtvQVBWSnJ5TVhnTzJfTmFZLUloRjVDdG1hZC1GUHhueFN1Yk1jVWM0amxLRFFIOFRoMERtXzhtVGlkdndFVUtBMUZMX0NXa2J4VXcyWTl6T0Z3X1Bwckp4cDU1Mk01dUo2V1BKS3MSBBoCCAAa1QQSABoAIgAqADIGCAISAnVzOgBCBAgBEBBKAFoAcgB6AIJAsQQIEBAAGAAgACoPCghrYXJwYXRoeRVVhgBAKg8KA-iupBXS-hU_GgPoqo0qCgoD55-lFdL6FT8qFQoG6bi_5rKfFQAAAAAaBum0u-a6nTKqAS9nb3RvP3VybD1DQUVTZEFIck96QVZEdW1LU0lKU2ZSNW5Vb2lkYmpxa1BsVmVJclQwMERhYmtaRkRzZWdKQ0UwWUhrb0FQVkpyeU1YZ08yX05hWS1JaEY1Q3RtYWQtRlB4bnhTdWJNY1VjNGpsS0RRSDhUaDBEbV84bVRpZHZ3RVVLQTFGTF9DV2tieFV3Mlk5ek9Gd19QcHJKeHA1NTJNNXVKNldQSktzOlNBbmRyZWogPGI-S2FycGF0aHk8L2I-IFNraWxsc--8mkFJIOaZuuiDveS9k-e8lueoi-Wbm-mhueWOn-WImeS7i-e7jeWPiuaJqeWxleWOn-WIm0LfAUFuZHJlaiA8Yj5LYXJwYXRoeTwvYj7vvIzliY3nibnmlq_mi4lBSSDmgLvnm5HjgIHmnY7po57po57lrabnlJ_jgIFPcGVuQUkg5Yib5aeL5oiQ5ZGY77yM546w5Lu7QUkg5pWZ6IKy6ICF44CC5LuW5pyA5pep5o-Q5Ye65LqGTExNIOS9nOS4uiZxdW90OzxiPuiupOefpTwvYj7mk43kvZzns7vnu58mcXVvdDvnmoTnkIblv7XvvIzlubbmjIflh7rlvZPliY1BSSDlnKjnvJbnqIsmbmJzcDsuLi4iAhABSABYAGgA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CqoBL2dvdG8_dXJsPUNBRVNkQUhyT3pBVkR1bUtTSUpTZlI1blVvaWRianFrUGxWZUlyVDAwRGFia1pGRHNlZ0pDRTBZSGtvQVBWSnJ5TVhnTzJfTmFZLUloRjVDdG1hZC1GUHhueFN1Yk1jVWM0amxLRFFIOFRoMERtXzhtVGlkdndFVUtBMUZMX0NXa2J4VXcyWTl6T0Z3X1Bwckp4cDU1Mk01dUo2V1BKS3MSBBoCCAAa1QQSABoAIgAqADIGCAISAnVzOgBCBAgBEBBKAFoAcgB6AIJAsQQIEBAAGAAgACoPCghrYXJwYXRoeRVVhgBAKg8KA-iupBXS-hU_GgPoqo0qCgoD55-lFdL6FT8qFQoG6bi_5rKfFQAAAAAaBum0u-a6nTKqAS9nb3RvP3VybD1DQUVTZEFIck96QVZEdW1LU0lKU2ZSNW5Vb2lkYmpxa1BsVmVJclQwMERhYmtaRkRzZWdKQ0UwWUhrb0FQVkpyeU1YZ08yX05hWS1JaEY1Q3RtYWQtRlB4bnhTdWJNY1VjNGpsS0RRSDhUaDBEbV84bVRpZHZ3RVVLQTFGTF9DV2tieFV3Mlk5ek9Gd19QcHJKeHA1NTJNNXVKNldQSktzOlNBbmRyZWogPGI-S2FycGF0aHk8L2I-IFNraWxsc--8mkFJIOaZuuiDveS9k-e8lueoi-Wbm-mhueWOn-WImeS7i-e7jeWPiuaJqeWxleWOn-WIm0LfAUFuZHJlaiA8Yj5LYXJwYXRoeTwvYj7vvIzliY3nibnmlq_mi4lBSSDmgLvnm5HjgIHmnY7po57po57lrabnlJ_jgIFPcGVuQUkg5Yib5aeL5oiQ5ZGY77yM546w5Lu7QUkg5pWZ6IKy6ICF44CC5LuW5pyA5pep5o-Q5Ye65LqGTExNIOS9nOS4uiZxdW90OzxiPuiupOefpTwvYj7mk43kvZzns7vnu58mcXVvdDvnmoTnkIblv7XvvIzlubbmjIflh7rlvZPliY1BSSDlnKjnvJbnqIsmbmJzcDsuLi4iAhABSABYAGgA",
+      "source": "CSDN博客",
+      "read_more_link": "https://blog.csdn.net/liu_zhiyi/article/details/160419161#:~:text=Andrej%20Karpathy%EF%BC%8C%E5%89%8D%E7%89%B9%E6%96%AF%E6%8B%89AI%20%E6%80%BB%E7%9B%91%E3%80%81%E6%9D%8E%E9%A3%9E%E9%A3%9E%E5%AD%A6%E7%94%9F%E3%80%81OpenAI%20%E5%88%9B%E5%A7%8B%E6%88%90%E5%91%98%EF%BC%8C%E7%8E%B0%E4%BB%BBAI%20%E6%95%99%E8%82%B2%E8%80%85%E3%80%82%E4%BB%96%E6%9C%80%E6%97%A9%E6%8F%90%E5%87%BA%E4%BA%86LLM,%E4%BD%9C%E4%B8%BA%22%E8%AE%A4%E7%9F%A5%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%22%E7%9A%84%E7%90%86%E5%BF%B5%EF%BC%8C%E5%B9%B6%E6%8C%87%E5%87%BA%E5%BD%93%E5%89%8DAI%20%E5%9C%A8%E7%BC%96%E7%A8%8B%E4%BB%BB%E5%8A%A1%E4%B8%AD%E7%9A%84%E7%B3%BB%E7%BB%9F%E6%80%A7%E7%BC%BA%E9%99%B7%E3%80%82"
+    },
+    {
+      "position": 8,
+      "title": "Karpathy Skills：LLM时代程序员的认知操作系统重构原创",
+      "link": "https://blog.csdn.net/weixin_32932149/article/details/165051405",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESegHrOzAVhIsJypULArTNsbi8JlEfB4h0ix0ihTXGz8su_M3y4wI3kXROm9D3E34xlflb6eGW2VLyH6eHzXyGEeGUqVKEdIX58Rj5xWfJYTUX3cLISkXmfxDCIO359yw8VKhjiXH4o5WmMIZXaJnXcB7W7lOImhwHjEDx&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECBgQAQ&uoh=1",
+      "displayed_link": "https://blog.csdn.net › details",
+      "favicon": "https://serpapi.com/images/i/UklGRvQAAABXRUJQVlA4IOgAAADQBQCdASocABwAPtE-tFooIigoFAEAGglsALEehHVwuLQCWYN5JIjwGaesZUSaJjNYhLb8T9MwAGu_jXD1V1pC4wa9Gj_8avh_NeBQor0g_qkMflmz-50uZTTuc2HM9_-N4lrsidjnPei20YxfOcwStb0NEsOK3DiHhiu34EqqsrODKAgIfcZMlxZ5RLWl5eP_Y1Bq0MRxz0oHk1Izb7LctFhlwZBY0De1eUWtX0EdmDdlKk9n7J-Hmm_EFmcCpyp2njDk0rENBnu6tie0JL_0qieBrvXBZxWbC0fIv9ePz9j_0Mk4AAAA.webp",
+      "date": "Sep 11, 2026",
+      "snippet": "真正卡住绝大多数人的，从来不是“要不要学Karpathy”，而是根本没意识到： Karpathy代表的是一套完全不同于传统软件工程的技能范式重构。",
+      "snippet_highlighted_words": [
+        "Karpathy代表的是一套完全不同于传统软件工程的技能范式重构"
+      ],
+      "about_this_result": {
+        "source": {
+          "description": "真正卡住绝大多数人的，从来不是“要不要学Karpathy”，而是根本没意识到： Karpathy代表的是一套完全不同于传统软件工程的技能范式重构。",
+          "source_info_link": "https://blog.csdn.net/weixin_32932149/article/details/165051405",
+          "icon": "https://serpapi.com/images/i/UklGRvQAAABXRUJQVlA4IOgAAADQBQCdASocABwAPtE-tFooIigoFAEAGglsALEehHVwuLQCWYN5JIjwGaesZUSaJjNYhLb8T9MwAGu_jXD1V1pC4wa9Gj_8avh_NeBQor0g_qkMflmz-50uZTTuc2HM9_-N4lrsidjnPei20YxfOcwStb0NEsOK3DiHhiu34EqqsrODKAgIfcZMlxZ5RLWl5eP_Y1Bq0MRxz0oHk1Izb7LctFhlwZBY0De1eUWtX0EdmDdlKk9n7J-Hmm_EFmcCpyp2njDk0rENBnu6tie0JL_0qieBrvXBZxWbC0fIv9ePz9j_0Mk4AAAA.webp"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CrIBL2dvdG8_dXJsPUNBRVNlZ0hyT3pBVmhJc0p5cFVMQXJUTnNiaThKbEVmQjRoMGl4MGloVFhHejhzdV9NM3k0d0kza1hST205RDNFMzR4bGZsYjZlR1cyVkx5SDZlSHpYeUdFZUdVcVZLRWRJWDU4Umo1eFdmSllUVVgzY0xJU2tYbWZ4RENJTzM1OXl3OFZLaGppWEg0bzVXbU1JWlhhSm5YY0I3VzdsT0ltaHdIakVEeBIEGgIIABrDBBIAGgAiACoAMgYIAhICdXM6AEIECAEQEEoAWgByAHoAgkCfBAgQEAAYACAAKg8KCGthcnBhdGh5FQjHfEAqDwoD6K6kFUGVZkAaA-iqjSoKCgPnn6UVe6phQCoVCgbpuL_msp8VAAAAABoG6bS75rqdMrIBL2dvdG8_dXJsPUNBRVNlZ0hyT3pBVmhJc0p5cFVMQXJUTnNiaThKbEVmQjRoMGl4MGloVFhHejhzdV9NM3k0d0kza1hST205RDNFMzR4bGZsYjZlR1cyVkx5SDZlSHpYeUdFZUdVcVZLRWRJWDU4Umo1eFdmSllUVVgzY0xJU2tYbWZ4RENJTzM1OXl3OFZLaGppWEg0bzVXbU1JWlhhSm5YY0I3VzdsT0ltaHdIakVEeDpYPGI-S2FycGF0aHk8L2I-IFNraWxsc--8mkxMTeaXtuS7o-eoi-W6j-WRmOeahDxiPuiupOefpTwvYj7mk43kvZzns7vnu5_ph43mnoQtQ1NETuWNmuWuokLAAeecn-ato-WNoeS9j-e7neWkp-WkmuaVsOS6uueahO-8jOS7juadpeS4jeaYr-KAnOimgeS4jeimgeWtpkthcnBhdGh54oCd77yM6ICM5piv5qC55pys5rKh5oSP6K-G5Yiw77yaIDxiPkthcnBhdGh55Luj6KGo55qE5piv5LiA5aWX5a6M5YWo5LiN5ZCM5LqO5Lyg57uf6L2v5Lu25bel56iL55qE5oqA6IO96IyD5byP6YeN5p6EPC9iPuOAgiICEAFIAFgAaAA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CrIBL2dvdG8_dXJsPUNBRVNlZ0hyT3pBVmhJc0p5cFVMQXJUTnNiaThKbEVmQjRoMGl4MGloVFhHejhzdV9NM3k0d0kza1hST205RDNFMzR4bGZsYjZlR1cyVkx5SDZlSHpYeUdFZUdVcVZLRWRJWDU4Umo1eFdmSllUVVgzY0xJU2tYbWZ4RENJTzM1OXl3OFZLaGppWEg0bzVXbU1JWlhhSm5YY0I3VzdsT0ltaHdIakVEeBIEGgIIABrDBBIAGgAiACoAMgYIAhICdXM6AEIECAEQEEoAWgByAHoAgkCfBAgQEAAYACAAKg8KCGthcnBhdGh5FQjHfEAqDwoD6K6kFUGVZkAaA-iqjSoKCgPnn6UVe6phQCoVCgbpuL_msp8VAAAAABoG6bS75rqdMrIBL2dvdG8_dXJsPUNBRVNlZ0hyT3pBVmhJc0p5cFVMQXJUTnNiaThKbEVmQjRoMGl4MGloVFhHejhzdV9NM3k0d0kza1hST205RDNFMzR4bGZsYjZlR1cyVkx5SDZlSHpYeUdFZUdVcVZLRWRJWDU4Umo1eFdmSllUVVgzY0xJU2tYbWZ4RENJTzM1OXl3OFZLaGppWEg0bzVXbU1JWlhhSm5YY0I3VzdsT0ltaHdIakVEeDpYPGI-S2FycGF0aHk8L2I-IFNraWxsc--8mkxMTeaXtuS7o-eoi-W6j-WRmOeahDxiPuiupOefpTwvYj7mk43kvZzns7vnu5_ph43mnoQtQ1NETuWNmuWuokLAAeecn-ato-WNoeS9j-e7neWkp-WkmuaVsOS6uueahO-8jOS7juadpeS4jeaYr-KAnOimgeS4jeimgeWtpkthcnBhdGh54oCd77yM6ICM5piv5qC55pys5rKh5oSP6K-G5Yiw77yaIDxiPkthcnBhdGh55Luj6KGo55qE5piv5LiA5aWX5a6M5YWo5LiN5ZCM5LqO5Lyg57uf6L2v5Lu25bel56iL55qE5oqA6IO96IyD5byP6YeN5p6EPC9iPuOAgiICEAFIAFgAaAA",
+      "source": "CSDN博客",
+      "read_more_link": "https://blog.csdn.net/weixin_32932149/article/details/165051405#:~:text=%E7%9C%9F%E6%AD%A3%E5%8D%A1%E4%BD%8F%E7%BB%9D%E5%A4%A7%E5%A4%9A%E6%95%B0%E4%BA%BA%E7%9A%84%EF%BC%8C%E4%BB%8E%E6%9D%A5%E4%B8%8D%E6%98%AF%E2%80%9C%E8%A6%81%E4%B8%8D%E8%A6%81%E5%AD%A6Karpathy%E2%80%9D%EF%BC%8C%E8%80%8C%E6%98%AF%E6%A0%B9%E6%9C%AC%E6%B2%A1%E6%84%8F%E8%AF%86%E5%88%B0%EF%BC%9A%20Karpathy%E4%BB%A3%E8%A1%A8%E7%9A%84%E6%98%AF%E4%B8%80%E5%A5%97%E5%AE%8C%E5%85%A8%E4%B8%8D%E5%90%8C%E4%BA%8E%E4%BC%A0%E7%BB%9F%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B%E7%9A%84%E6%8A%80%E8%83%BD%E8%8C%83%E5%BC%8F%E9%87%8D%E6%9E%84%E3%80%82%E4%BB%96%E4%B8%8D%E6%95%99%E4%BD%A0%E6%80%8E%E4%B9%88%E7%94%A8PyTorch%E5%86%99%E4%B8%80%E4%B8%AAResNet%EF%BC%8C%E8%80%8C%E6%98%AF%E6%95%99%E4%BD%A0%E5%A6%82%E4%BD%95%E5%9C%A8LLM%E6%97%B6%E4%BB%A3%E9%87%8D%E6%96%B0%E5%AE%9A%E4%B9%89%E2%80%9C%E5%86%99%E4%BB%A3%E7%A0%81%E2%80%9D%E8%BF%99%E4%BB%B6%E4%BA%8B%E6%9C%AC%E8%BA%AB%E2%80%94%E2%80%94%E4%BB%8E%E2%80%9C%E4%BA%BA%E5%86%99%E9%80%BB%E8%BE%91%E2%86%92%E6%9C%BA%E5%99%A8%E6%89%A7%E8%A1%8C%E2%80%9D%EF%BC%8C%E5%8F%98%E6%88%90%E2%80%9C%E4%BA%BA%E7%BC%96%E6%8E%92%E6%84%8F%E5%9B%BE%E2%86%92%E6%A8%A1%E5%9E%8B%E7%94%9F%E6%88%90%E9%80%BB%E8%BE%91%E2%86%92%E4%BA%BA%E6%A0%A1%E9%AA%8C%E8%AF%AD%E4%B9%89%E2%86%92%E8%BF%AD%E4%BB%A3%E4%BF%AE%E6%AD%A3%E8%AE%A4%E7%9F%A5%E2%80%9D%E3%80%82%E8%BF%99%E4%B8%8D%E6%98%AF%E6%8A%80%E8%83%BD%E5%8F%A0%E5%8A%A0%EF%BC%8C%E6%98%AF%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E7%BA%A7%E7%9A%84%E5%8D%87%E7%BA%A7%E3%80%82"
+    },
+    {
+      "position": 9,
+      "title": "重构人机协作：Karpathy式代码直觉训练体系原创",
+      "link": "https://blog.csdn.net/weixin_42619742/article/details/165046874",
+      "redirect_link": "https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=CAESegHrOzAVCzpiTqmzG3gBAwqgmwi6OebL7-0gqK6581Ps0fvkVXDwH8E2cvdmWH7CmbaOtRxMACtPpU3xAk_op_8mXtnReR-96jTm0QaNEabxaO-YyHE5_ctF2O3UIonTzAtzQE7_9O2m5SlFcq-LQjj3bnylsOqRjTzu&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4QFnoECBcQAQ&uoh=1",
+      "displayed_link": "https://blog.csdn.net › details",
+      "favicon": "https://serpapi.com/images/i/UklGRvQAAABXRUJQVlA4IOgAAADQBQCdASocABwAPtE-tFooIigoFAEAGglsALEehHVwuLQCWYN5JIjwGaesZUSaJjNYhLb8T9MwAGu_jXD1V1pC4wa9Gj_8avh_NeBQor0g_qkMflmz-50uZTTuc2HM9_-N4lrsidjnPei20YxfOcwStb0NEsOK3DiHhiu34EqqsrODKAgIfcZMlxZ5RLWl5eP_Y1Bq0MRxz0oHk1Izb7LctFhlwZBY0De1eUWtX0EdmDdlKk9n7J-Hmm_EFmcCpyp2njDk0rENBnu6tie0JL_0qieBrvXBZxWbC0fIv9ePz9j_0Mk4AAAA.webp",
+      "date": "Sep 11, 2026",
+      "snippet": "本质问题在于缺少从底层出发的完整认知链路。通过拆解自动微分、反向传播等核心机制的运行原理，理解标量计算图如何扩展为张量操作，再进一步看清 ...",
+      "snippet_highlighted_words": [
+        "认知"
+      ],
+      "about_this_result": {
+        "source": {
+          "description": "本质问题在于缺少从底层出发的完整认知链路。通过拆解自动微分、反向传播等核心机制的运行原理，理解标量计算图如何扩展为张量操作，再进一步看清 ...",
+          "source_info_link": "https://blog.csdn.net/weixin_42619742/article/details/165046874",
+          "icon": "https://serpapi.com/images/i/UklGRvQAAABXRUJQVlA4IOgAAADQBQCdASocABwAPtE-tFooIigoFAEAGglsALEehHVwuLQCWYN5JIjwGaesZUSaJjNYhLb8T9MwAGu_jXD1V1pC4wa9Gj_8avh_NeBQor0g_qkMflmz-50uZTTuc2HM9_-N4lrsidjnPei20YxfOcwStb0NEsOK3DiHhiu34EqqsrODKAgIfcZMlxZ5RLWl5eP_Y1Bq0MRxz0oHk1Izb7LctFhlwZBY0De1eUWtX0EdmDdlKk9n7J-Hmm_EFmcCpyp2njDk0rENBnu6tie0JL_0qieBrvXBZxWbC0fIv9ePz9j_0Mk4AAAA.webp"
+        },
+        "languages": [
+          "en"
+        ],
+        "regions": [
+          "US"
+        ]
+      },
+      "about_page_link": "https://www.google.com/search/about-this-result?origin=www.google.com&req=CrIBL2dvdG8_dXJsPUNBRVNlZ0hyT3pBVkN6cGlUcW16RzNnQkF3cWdtd2k2T2ViTDctMGdxSzY1ODFQczBmdmtWWER3SDhFMmN2ZG1XSDdDbWJhT3RSeE1BQ3RQcFUzeEFrX29wXzhtWHRuUmVSLTk2alRtMFFhTkVhYnhhTy1ZeUhFNV9jdEYyTzNVSW9uVHpBdHpRRTdfOU8ybTVTbEZjcS1MUWpqM2JueWxzT3FSalR6dRIEGgIIABrZBBIAGgAiACoAMgYIAhICdXM6AEIECAEQEEoAWgByAHoAgkC1BAgQEAAYACAAKg8KCGthcnBhdGh5FQERAEAqDwoD6K6kFW55DT8aA-iqjSoKCgPnn6UVbnkNPyoVCgbpuL_msp8VIPtyOxoG6bS75rqdMrIBL2dvdG8_dXJsPUNBRVNlZ0hyT3pBVkN6cGlUcW16RzNnQkF3cWdtd2k2T2ViTDctMGdxSzY1ODFQczBmdmtWWER3SDhFMmN2ZG1XSDdDbWJhT3RSeE1BQ3RQcFUzeEFrX29wXzhtWHRuUmVSLTk2alRtMFFhTkVhYnhhTy1ZeUhFNV9jdEYyTzNVSW9uVHpBdHpRRTdfOU8ybTVTbEZjcS1MUWpqM2JueWxzT3FSalR6dTpS6YeN5p6E5Lq65py65Y2P5L2c77yaPGI-S2FycGF0aHk8L2I-5byP5Luj56CB55u06KeJ6K6t57uD5L2T57O75Y6f5YibIC0gQ1NETuWNmuWuokLcAeacrOi0qOmXrumimOWcqOS6jue8uuWwkeS7juW6leWxguWHuuWPkeeahOWujOaVtDxiPuiupOefpTwvYj7pk77ot6_jgILpgJrov4fmi4bop6Poh6rliqjlvq7liIbjgIHlj43lkJHkvKDmkq3nrYnmoLjlv4PmnLrliLbnmoTov5DooYzljp_nkIbvvIznkIbop6PmoIfph4_orqHnrpflm77lpoLkvZXmianlsZXkuLrlvKDph4_mk43kvZzvvIzlho3ov5vkuIDmraXnnIvmuIUmbmJzcDsuLi4iAhABSABYAGgA",
+      "about_page_serpapi_link": "https://serpapi.com/search.json?engine=google_about_this_result&google_domain=google.com&req_token=CrIBL2dvdG8_dXJsPUNBRVNlZ0hyT3pBVkN6cGlUcW16RzNnQkF3cWdtd2k2T2ViTDctMGdxSzY1ODFQczBmdmtWWER3SDhFMmN2ZG1XSDdDbWJhT3RSeE1BQ3RQcFUzeEFrX29wXzhtWHRuUmVSLTk2alRtMFFhTkVhYnhhTy1ZeUhFNV9jdEYyTzNVSW9uVHpBdHpRRTdfOU8ybTVTbEZjcS1MUWpqM2JueWxzT3FSalR6dRIEGgIIABrZBBIAGgAiACoAMgYIAhICdXM6AEIECAEQEEoAWgByAHoAgkC1BAgQEAAYACAAKg8KCGthcnBhdGh5FQERAEAqDwoD6K6kFW55DT8aA-iqjSoKCgPnn6UVbnkNPyoVCgbpuL_msp8VIPtyOxoG6bS75rqdMrIBL2dvdG8_dXJsPUNBRVNlZ0hyT3pBVkN6cGlUcW16RzNnQkF3cWdtd2k2T2ViTDctMGdxSzY1ODFQczBmdmtWWER3SDhFMmN2ZG1XSDdDbWJhT3RSeE1BQ3RQcFUzeEFrX29wXzhtWHRuUmVSLTk2alRtMFFhTkVhYnhhTy1ZeUhFNV9jdEYyTzNVSW9uVHpBdHpRRTdfOU8ybTVTbEZjcS1MUWpqM2JueWxzT3FSalR6dTpS6YeN5p6E5Lq65py65Y2P5L2c77yaPGI-S2FycGF0aHk8L2I-5byP5Luj56CB55u06KeJ6K6t57uD5L2T57O75Y6f5YibIC0gQ1NETuWNmuWuokLcAeacrOi0qOmXrumimOWcqOS6jue8uuWwkeS7juW6leWxguWHuuWPkeeahOWujOaVtDxiPuiupOefpTwvYj7pk77ot6_jgILpgJrov4fmi4bop6Poh6rliqjlvq7liIbjgIHlj43lkJHkvKDmkq3nrYnmoLjlv4PmnLrliLbnmoTov5DooYzljp_nkIbvvIznkIbop6PmoIfph4_orqHnrpflm77lpoLkvZXmianlsZXkuLrlvKDph4_mk43kvZzvvIzlho3ov5vkuIDmraXnnIvmuIUmbmJzcDsuLi4iAhABSABYAGgA",
+      "source": "CSDN博客",
+      "read_more_link": "https://blog.csdn.net/weixin_42619742/article/details/165046874#:~:text=%E6%9C%AC%E8%B4%A8%E9%97%AE%E9%A2%98%E5%9C%A8%E4%BA%8E%E7%BC%BA%E5%B0%91%E4%BB%8E%E5%BA%95%E5%B1%82%E5%87%BA%E5%8F%91%E7%9A%84%E5%AE%8C%E6%95%B4%E8%AE%A4%E7%9F%A5%E9%93%BE%E8%B7%AF%E3%80%82%E9%80%9A%E8%BF%87%E6%8B%86%E8%A7%A3%E8%87%AA%E5%8A%A8%E5%BE%AE%E5%88%86%E3%80%81%E5%8F%8D%E5%90%91%E4%BC%A0%E6%92%AD%E7%AD%89%E6%A0%B8%E5%BF%83%E6%9C%BA%E5%88%B6%E7%9A%84%E8%BF%90%E8%A1%8C%E5%8E%9F%E7%90%86%EF%BC%8C%E7%90%86%E8%A7%A3%E6%A0%87%E9%87%8F%E8%AE%A1%E7%AE%97%E5%9B%BE%E5%A6%82%E4%BD%95%E6%89%A9%E5%B1%95%E4%B8%BA%E5%BC%A0%E9%87%8F%E6%93%8D%E4%BD%9C%EF%BC%8C%E5%86%8D%E8%BF%9B%E4%B8%80%E6%AD%A5%E7%9C%8B%E6%B8%85Transformer"
+    }
+  ],
+  "scholarly_articles": {
+    "title": "Google 学术：Karpathy 认知鸿沟",
+    "link": "https://scholar.google.com/scholar?q=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F&hl=zh-CN&as_sdt=0&as_vis=1&oi=scholart",
+    "serpapi_link": "https://serpapi.com/search.json?as_sdt=0&as_vis=1&engine=google_scholar&hl=zh-CN&q=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F",
+    "articles": [
+      {
+        "title": "多模态具身大模型: 感知—认知—执行一体化架构及应用",
+        "link": "https://www.sciengine.com/sci-open/doi/pdf/62D928D8F4804A7BA7D510719C615165",
+        "highlighted_words": [
+          "认知"
+        ],
+        "author": "‎朱霖潮"
+      },
+      {
+        "title": "结合LSTM 和CNN 混合架构的深度神经网络语言模型",
+        "link": "http://qbxb.istic.ac.cn/CN/article/downloadArticleFile.do?attachType=PDF&id=20",
+        "author": "‎王毅"
+      },
+      {
+        "title": "跨模态表征与生成技术",
+        "link": "https://www.sciengine.com/sci-open/doi/pdf/6B54EFDB64364D33A83D461CE74D73CF",
+        "author": "‎刘华峰"
+      }
+    ]
+  },
+  "pagination": {
+    "current": 1,
+    "next": "https://www.google.com/search?q=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F&sca_esv=95a3924c91beb42b&sxsrf=APpeQnvcMOGtyoXI9f9esWGEpcziMRYcOg:1791880197205&ei=BezNaoeTDNKhiLMP6NuT8Q8&start=10&sa=N&sstk=AS6-VmI0qYMvnT4jzGfPyhOYGdUlNC-MptxR7va0sJvH_flygV0zfe8d5_M0weHXMMDAdkRFSl-3GBuD5oTVlnEOVFTftIMUrWtF1A&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4Q8NMDegQIPxAG",
+    "other_pages": {
+      "2": "https://www.google.com/search?q=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F&sca_esv=95a3924c91beb42b&sxsrf=APpeQnvcMOGtyoXI9f9esWGEpcziMRYcOg:1791880197205&ei=BezNaoeTDNKhiLMP6NuT8Q8&start=10&sa=N&sstk=AS6-VmI0qYMvnT4jzGfPyhOYGdUlNC-MptxR7va0sJvH_flygV0zfe8d5_M0weHXMMDAdkRFSl-3GBuD5oTVlnEOVFTftIMUrWtF1A&ved=2ahUKEwjHqYn1ybaXAxXSEGIAHejtJP4Q8tMDegQIPxAE"
+    }
+  },
+  "serpapi_pagination": {
+    "current": 1,
+    "next_link": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&q=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F&start=10",
+    "next": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&q=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F&start=10",
+    "other_pages": {
+      "2": "https://serpapi.com/search.json?device=desktop&engine=google&google_domain=google.com&q=Karpathy+%E8%AE%A4%E7%9F%A5%E9%B8%BF%E6%B2%9F&start=10"
+    }
+  }
+}

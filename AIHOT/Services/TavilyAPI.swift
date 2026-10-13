@@ -5,7 +5,7 @@ protocol TavilyCalling {
     func call(tool: String, arguments: [String: Any], apiKey: String) async throws -> String
 }
 
-/// Tavily 客户端：联网搜索 + 整页提取，作为 AnySearch 的可切换替代。
+/// Tavily 客户端：联网搜索 + 整页提取，五家搜索工具之一（见 `SearchToolChain`）。
 ///
 /// 接口契约（照官方文档 docs.tavily.com，并已实际调通、抓过夹具）：
 ///
@@ -214,7 +214,7 @@ final class TavilyAPI: TavilyCalling, @unchecked Sendable {
         if statusCode == 401 || statusCode == 403 {
             return APIError(
                 kind: .server(statusCode),
-                message: "Tavily 的 Key 无效或已停用（\(statusCode)）。到「设置 → AI 对话」换一个 Key，或把搜索工具切回 AnySearch"
+                message: "Tavily 的 Key 无效或已停用（\(statusCode)）。到「设置 → AI 对话 → 搜索工具」换一个 Key，或停用 Tavily 改用其它家"
             )
         }
         if statusCode == 429 {
@@ -235,8 +235,8 @@ final class TavilyAPI: TavilyCalling, @unchecked Sendable {
     }
 }
 
-/// 把模型请求的工具调用落到 Tavily 上（与 `AnySearchToolRunner` 同形，靠设置页的
-/// Picker 二选一）。与 AnySearch 的两处不同：
+/// 把模型请求的工具调用落到 Tavily 上（与 `AnySearchToolRunner` 同形，
+/// 由 `SearchToolChain` 按用户顺序调用；空 Key 由链先挡，这里是防御）。与 AnySearch 的两处不同：
 ///
 /// - **没有匿名模式**：key 为空时不发网络，直接回一句可照做的话；
 /// - `extract` 的参数是 `urls`（数组）+ `format: "markdown"`，而 AnySearch 是单个 `url`。
@@ -264,7 +264,7 @@ struct TavilyToolRunner: AIChatToolExecuting {
         if apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return AIChatToolResult.failure(
                 name,
-                "还没填 Tavily 的 Key。到「设置 → AI 对话」填一个，或把搜索工具切回 AnySearch（它支持匿名）"
+                "还没填 Tavily 的 Key（Tavily 不支持匿名）。到「设置 → AI 对话 → 搜索工具」填一个，或停用 Tavily"
             )
         }
 

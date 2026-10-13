@@ -33,6 +33,13 @@ JSON_FILES = [
     "AIHOTTests/Fixtures/tavily-search.json",
     "AIHOTTests/Fixtures/tavily-extract.json",
     "AIHOTTests/Fixtures/story-timeline.json",
+    "AIHOTTests/Fixtures/serpapi-search.json",
+    "AIHOTTests/Fixtures/serpapi-error.json",
+    "AIHOTTests/Fixtures/serper-search.json",
+    "AIHOTTests/Fixtures/serper-error.json",
+    "AIHOTTests/Fixtures/exa-search.json",
+    "AIHOTTests/Fixtures/exa-contents.json",
+    "AIHOTTests/Fixtures/exa-error.json",
 ]
 
 PYTHON_FILES = [

@@ -104,7 +104,7 @@ final class TavilyTests: XCTestCase {
         let error = TavilyAPI.apiError(statusCode: 401, data: Data())
         XCTAssertEqual(error.kind, .server(401))
         XCTAssertTrue(error.message.contains("Key 无效"), "实际：\(error.message)")
-        XCTAssertTrue(error.message.contains("AnySearch"), "要给出退路：切回另一家搜索工具")
+        XCTAssertTrue(error.message.contains("搜索工具"), "要给出退路：设置里的搜索工具一节（退路是链，不是切回某家）")
     }
 
     func testForbiddenIsTreatedTheSameAsUnauthorized() {
@@ -175,7 +175,7 @@ final class TavilyTests: XCTestCase {
         XCTAssertTrue(outcome.isError)
         XCTAssertTrue(fake.calls.isEmpty, "没 key 就不该发网络")
         XCTAssertTrue(outcome.text.contains("Tavily 的 Key"), "要给出能照做的提示，实际：\(outcome.text)")
-        XCTAssertTrue(outcome.text.contains("AnySearch"), "顺带给出退路")
+        XCTAssertTrue(outcome.text.contains("搜索工具"), "顺带给出设置路径（退路是链，不是切回某家）")
     }
 
     func testMissingArgumentIsReportedAsToolErrorNotACrash() async {

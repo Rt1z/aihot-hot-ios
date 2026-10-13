@@ -21,8 +21,6 @@ struct AboutView: View {
 
     @AppStorage(AppSettings.aiChatProtocolKey)
     private var aiChatProtocolRaw: String = AIChatProtocol.anthropicMessages.rawValue
-    @AppStorage(AppSettings.aiChatSearchToolKey)
-    private var searchToolRaw: String = AppSettings.SearchToolProvider.anySearch.rawValue
     @AppStorage(AppSettings.aiChatAnthropicBaseURLKey)
     private var anthropicBaseURL: String = AIChatProtocol.anthropicMessages.defaultBaseURL
     @AppStorage(AppSettings.aiChatAnthropicModelKey)
@@ -36,13 +34,17 @@ struct AboutView: View {
     @State private var apiKeyDraft = ""
     @State private var apiKeySaved = false
     @State private var secretFellBack = false
-    /// AnySearch 的 Key 是**可选**的：留空走匿名，搜索照样能用。
-    @State private var anySearchKeyDraft = ""
-    @State private var anySearchFellBack = false
-    /// Tavily 的 Key 是**必填**的（没有匿名模式）。两个搜索 Key 的草稿都常驻 @State、
-    /// load/save 一起读写 —— 切换搜索工具只是换显示哪个字段，不丢另一个的草稿。
-    @State private var tavilyKeyDraft = ""
-    @State private var tavilyFellBack = false
+
+    // MARK: - 搜索工具（顺序 / 开关 / 五份 Key 草稿）
+    //
+    // 顺序与开关**即点即存**（直接写 AppSettings，重启后还在）；
+    // Key 仍走草稿 + 保存按钮（钥匙串不逐字写）。初始化读一次 UserDefaults，
+    // 之后以 @State 为准。
+
+    @State private var searchOrder: [AppSettings.SearchToolProvider] = AppSettings.searchToolOrder
+    @State private var searchDisabled: Set<AppSettings.SearchToolProvider> = AppSettings.searchToolDisabled
+    @State private var searchKeyDrafts: [AppSettings.SearchToolProvider: String] = [:]
+    @State private var searchFellBack: Set<AppSettings.SearchToolProvider> = []
 
     @State private var isTestingConnection = false
     @State private var testResult: String?
@@ -88,14 +90,6 @@ struct AboutView: View {
                 }
                 .pickerStyle(.segmented)
 
-                // 工具声明是提供方无关的：切这里只换「谁来执行」，请求体不动
-                Picker("搜索工具", selection: $searchToolRaw) {
-                    ForEach(AppSettings.SearchToolProvider.allCases) { option in
-                        Text(option.title).tag(option.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-
                 // 标签单独一行而不是塞进 TextField 的 placeholder：
                 // 这两个字段默认就有值，placeholder 在填好之后就看不见了，
                 // 那样一行只剩个光秃秃的 URL。
@@ -135,41 +129,10 @@ struct AboutView: View {
                         .keyboardType(.asciiCapable)
                 }
 
-                // 只显示当前搜索工具的 Key 字段（两个草稿都常驻 @State，切过去不丢）
-                if selectedSearchTool == .anySearch {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("AnySearch Key（可选）")
-                            .font(.system(size: 12))
-                            .foregroundColor(Theme.textTertiary)
-                        SecureField("留空即用匿名（限速更低）", text: $anySearchKeyDraft)
-                            .font(.system(size: 14))
-                            .foregroundColor(Theme.textPrimary)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.asciiCapable)
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Tavily Key")
-                            .font(.system(size: 12))
-                            .foregroundColor(Theme.textTertiary)
-                        SecureField("Tavily 不支持匿名", text: $tavilyKeyDraft)
-                            .font(.system(size: 14))
-                            .foregroundColor(Theme.textPrimary)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.asciiCapable)
-                    }
-                }
-
                 Button(action: saveAPIKey) {
                     Label(apiKeySaved ? "已保存密钥" : "保存密钥", systemImage: "key")
                 }
-                .disabled(
-                    apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        && anySearchKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        && tavilyKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
+                .disabled(!hasAnyKeyDraft)
 
                 Button {
                     Task { await testConnection() }
@@ -191,14 +154,34 @@ struct AboutView: View {
                 Text("AI 对话")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("联网搜索与读取原文由「搜索工具」里选的那家提供，两条协议都能用：AnySearch 的 Key 留空即用匿名（限速更低），Tavily 必须填 Key（不支持匿名）。")
+                    Text("联网搜索与读取原文由下一节「搜索工具」按顺序提供，两条协议都能用。")
                     Text("国内直连 api.anthropic.com 通常不通，接口地址可填兼容 Anthropic Messages 协议的中转地址。")
                     Text("「测试连接」只拉一次模型列表，不产生生成计费。")
                     Text("密钥存在系统钥匙串里，只保存在本机。")
-                    if secretFellBack || anySearchFellBack || tavilyFellBack {
+                    if secretFellBack || !searchFellBack.isEmpty {
                         Text("注意：这台设备上钥匙串不可用，密钥已改用应用内存储（仅本机、卸载即丢失）。")
                             .foregroundColor(Theme.breakout)
                     }
+                }
+            }
+
+            // 五家搜索工具：每行一块（开关 + 能力/Key 状态 + Key 输入 + 排序箭头）。
+            // 顺序与开关即点即存；Key 走草稿，点「保存密钥」才写钥匙串。
+            Section {
+                ForEach(searchOrder) { provider in
+                    searchProviderBlock(provider)
+                }
+
+                Button(action: saveAPIKey) {
+                    Label(apiKeySaved ? "已保存密钥" : "保存密钥", systemImage: "key")
+                }
+                .disabled(!hasAnyKeyDraft)
+            } header: {
+                Text("搜索工具")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("顺序即优先级：从上往下逐家尝试，一家失败（Key 无效、超限、网络问题）自动换下一家；全部失败时报第一家的错误，先查那家的 Key 或开关。开关与顺序即点即存，Key 要点「保存密钥」。")
+                    Text("必填 Key 没填的家不参与（AnySearch 留空即用匿名）；SerpAPI、Serper 只能搜索，读取原文会自动跳过它们。")
                 }
             }
 
@@ -312,8 +295,108 @@ struct AboutView: View {
         AIChatProtocol(rawValue: aiChatProtocolRaw) ?? .anthropicMessages
     }
 
-    private var selectedSearchTool: AppSettings.SearchToolProvider {
-        AppSettings.SearchToolProvider(rawValue: searchToolRaw) ?? .anySearch
+    // MARK: - 搜索工具
+
+    private typealias SearchToolProvider = AppSettings.SearchToolProvider
+
+    /// 六份草稿（对话协议 1 + 搜索 5）全空才禁用保存按钮 —— 两个保存按钮共用。
+    private var hasAnyKeyDraft: Bool {
+        if !apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        return SearchToolProvider.allCases.contains { provider in
+            !(searchKeyDrafts[provider] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private func searchKeyDraftBinding(for provider: SearchToolProvider) -> Binding<String> {
+        Binding(
+            get: { searchKeyDrafts[provider] ?? "" },
+            set: { searchKeyDrafts[provider] = $0 }
+        )
+    }
+
+    /// isOn 是「启用」：停用集合里没有它 = 开着。
+    private func searchEnabledBinding(for provider: SearchToolProvider) -> Binding<Bool> {
+        Binding(
+            get: { !searchDisabled.contains(provider) },
+            set: { enabled in
+                if enabled {
+                    searchDisabled.remove(provider)
+                } else {
+                    searchDisabled.insert(provider)
+                }
+                // 即点即存：开关重启后还在
+                AppSettings.searchToolDisabled = searchDisabled
+            }
+        )
+    }
+
+    /// ↑↓ 换位。越界由按钮的 disabled 挡，这里再 guard 一次（防御）。
+    private func moveSearchTool(_ provider: SearchToolProvider, by offset: Int) {
+        guard let index = searchOrder.firstIndex(of: provider) else { return }
+        let target = index + offset
+        guard target >= 0, target < searchOrder.count else { return }
+        searchOrder.swapAt(index, target)
+        // 即点即存：顺序重启后还在
+        AppSettings.searchToolOrder = searchOrder
+    }
+
+    /// 行内 Key 状态提示 —— **显式披露「静默跳过」**：没 Key 的家看起来一切正常、
+    /// 就是永远轮不到它，用户不点开永远不知道。
+    private func searchKeyHint(for provider: SearchToolProvider) -> (text: String, isWarning: Bool) {
+        if searchDisabled.contains(provider) {
+            return ("已停用", false)
+        }
+        let draft = (searchKeyDrafts[provider] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if draft.isEmpty {
+            return provider.requiresKey ? ("未填 Key，暂不参与", true) : ("留空即用匿名", false)
+        }
+        return ("已填 Key", false)
+    }
+
+    /// 一块 = 一个 Form 行：开关 + 排序箭头，能力标签 + Key 状态，Key 输入框。
+    private func searchProviderBlock(_ provider: SearchToolProvider) -> some View {
+        let hint = searchKeyHint(for: provider)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Toggle(provider.title, isOn: searchEnabledBinding(for: provider))
+                    .font(.system(size: 14))
+                Spacer()
+                HStack(spacing: 16) {
+                    Button {
+                        moveSearchTool(provider, by: -1)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                    }
+                    .disabled(provider == searchOrder.first)
+                    Button {
+                        moveSearchTool(provider, by: 1)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                    }
+                    .disabled(provider == searchOrder.last)
+                }
+                .font(.system(size: 13))
+                .foregroundColor(Theme.textTertiary)
+            }
+            HStack {
+                Text(provider.capabilityTitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.textTertiary)
+                Spacer()
+                Text(hint.text)
+                    .font(.system(size: 12))
+                    .foregroundColor(hint.isWarning ? Theme.breakout : Theme.textSecondary)
+            }
+            SecureField(
+                provider == .anySearch ? "留空即用匿名（限速更低）" : "\(provider.title) 不支持匿名",
+                text: searchKeyDraftBinding(for: provider)
+            )
+            .font(.system(size: 14))
+            .foregroundColor(Theme.textPrimary)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(.asciiCapable)
+        }
     }
 
     private var baseURLBinding: Binding<String> {
@@ -333,21 +416,28 @@ struct AboutView: View {
     private func loadAPIKey() {
         apiKeyDraft = AIChatSecretStore.shared.key(for: selectedProtocol)
         secretFellBack = AIChatSecretStore.shared.isUsingFallback(for: selectedProtocol)
-        // 两个搜索 Key 一起读：切换搜索工具时不重载，草稿才不会丢
-        anySearchKeyDraft = AIChatSecretStore.shared.anySearchKey()
-        anySearchFellBack = AIChatSecretStore.shared.isUsingAnySearchFallback()
-        tavilyKeyDraft = AIChatSecretStore.shared.tavilyKey()
-        tavilyFellBack = AIChatSecretStore.shared.isUsingTavilyFallback()
+        // 五份搜索 Key 一起读：不随开关/顺序重载，草稿才不会丢
+        for provider in SearchToolProvider.allCases {
+            searchKeyDrafts[provider] = AIChatSecretStore.shared.searchKey(for: provider)
+        }
+        searchFellBack = Set(SearchToolProvider.allCases.filter {
+            AIChatSecretStore.shared.isUsingSearchFallback(for: $0)
+        })
         apiKeySaved = false
     }
 
     private func saveAPIKey() {
         AIChatSecretStore.shared.setKey(apiKeyDraft, for: selectedProtocol)
-        AIChatSecretStore.shared.setAnySearchKey(anySearchKeyDraft)
-        AIChatSecretStore.shared.setTavilyKey(tavilyKeyDraft)
+        for provider in SearchToolProvider.allCases {
+            AIChatSecretStore.shared.setSearchKey(
+                searchKeyDrafts[provider] ?? "",
+                for: provider
+            )
+        }
         secretFellBack = AIChatSecretStore.shared.isUsingFallback(for: selectedProtocol)
-        anySearchFellBack = AIChatSecretStore.shared.isUsingAnySearchFallback()
-        tavilyFellBack = AIChatSecretStore.shared.isUsingTavilyFallback()
+        searchFellBack = Set(SearchToolProvider.allCases.filter {
+            AIChatSecretStore.shared.isUsingSearchFallback(for: $0)
+        })
         apiKeySaved = true
     }
 

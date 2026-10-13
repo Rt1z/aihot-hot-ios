@@ -150,17 +150,20 @@
 | API Key | 你的 Key | 你的 Key |
 | 联网搜索 / 读网页 | 可以 | 可以（两边一样） |
 
-联网搜索与读取网页由「设置 → AI 对话 → **搜索工具**」里选的那家提供
-（[AnySearch](https://anysearch.com) 或 [Tavily](https://docs.tavily.com)，默认 AnySearch，
-老用户无感），**两条协议走同一条路** —— 工具声明是通用的，切换只换「谁来执行」，请求体一行不动：
+联网搜索与读取网页由「设置 → AI 对话 → **搜索工具**」里那**一串**工具提供 —— 五家
+（[AnySearch](https://anysearch.com)、[Tavily](https://docs.tavily.com)、
+[SerpAPI](https://serpapi.com/search-api)、[Exa](https://exa.ai)、[Serper](https://serper.dev)，
+默认 AnySearch 排第一，老用户无感）按你排好的顺序轮流上：**一家失败（Key 无效、超限、网络问题）
+自动换下一家，全部失败时报排第一那家的错**。**两条协议走同一条路** —— 工具声明是通用的，
+顺序只换「谁来执行」，请求体一行不动：
 
-| 搜索工具 | AnySearch | Tavily |
-| --- | --- | --- |
-| 接口地址 | 固定 `https://api.anysearch.com/mcp`，不用填 | 固定 `https://api.tavily.com`，不用填 |
-| Key | **可选**：留空即用匿名（限速更低），Console 在 anysearch.com | **必填**：没有匿名模式，Console 在 tavily.com |
-| 提供的能力 | `search` 联网搜索、`extract` 把网页转成 Markdown | 同左（`search` / `extract`） |
-| 结果形态 | search 是排好的 Markdown；extract 是 JSON 文档字符串 | 两者都直接给 Markdown |
-| Key 无效时 | 直接报「Key 无效」，**不会退回匿名**（把字段清空即可继续用匿名） | 报「Key 无效或已停用」，并提示可以切回 AnySearch |
+| 搜索工具 | Key | 能力 | 备注 |
+| --- | --- | --- | --- |
+| AnySearch | **可选**：留空即用匿名（限速更低），Console 在 anysearch.com | 搜索 + 读网页 | search 给排好的 Markdown；extract 给 JSON 文档字符串。**Key 无效不会退回匿名**（想匿名就把字段清空），链会先换下一家 |
+| Tavily | **必填**，Console 在 tavily.com | 搜索 + 读网页 | search 带可选的 `answer` 引用块；extract 直接给 Markdown（`raw_content`） |
+| SerpAPI | **必填**（Key 走查询参数） | 仅搜索 | 读网页会被链自动跳过；报错文案里**绝不带**完整请求地址 |
+| Exa | **必填**，Console 在 exa.ai | 搜索 + 读网页 | 搜索自带 500 字摘要；读网页最多回 8000 字（超出截断） |
+| Serper | **必填**，Console 在 serper.dev | 仅搜索 | 请求最简：`X-API-KEY` 头 + `{"q": …}`；读网页会被链自动跳过 |
 
 几个要知道的点：
 
@@ -169,15 +172,19 @@
   以 DeepSeek 为例，OpenAI 兼容填 `https://api.deepseek.com`（带不带 `/v1` 都行），
   Anthropic 兼容才填 `https://api.deepseek.com/anthropic`。填反了 App 不会含糊其辞：它会
   用另一条协议的解码器认出这是谁家的流，并直接告诉你该把协议改成哪一个。
-- **Key 存在系统钥匙串里**（四份：两条协议各一份 + AnySearch 一份 + Tavily 一份），只在本机、不进备份。
+- **Key 存在系统钥匙串里**（七份：两条协议各一份 + 五家搜索各一份），只在本机、不进备份。
   万一这台设备的签名环境不允许用钥匙串，会退回应用内存储，并**在设置页里明确写出来**。
-- **AnySearch 的 Key 填错了不会自动退回匿名**，会直接报「Key 无效」；把那个字段清空即可继续用匿名。
-  Tavily 的 Key 报无效时会直接提示「切回 AnySearch」—— 它没有匿名这条退路。
+- **AnySearch 的 Key 填错了不会自动退回匿名**：链会**换下一家**，全部家都失败时才看到它的
+  「Key 无效」；想用匿名就把那个字段清空。其余四家同理 —— 报无效就换下一家，
+  全部失败时报**排第一那家**的错，先查那家的 Key 或开关，别急着换顺序。
+- **顺序与开关即点即存**（↑↓ 换位、开关一拨就写入，重启还在）；必填 Key 没填的家**不参与**
+  （行内会标「未填 Key，暂不参与」），Key 要点「保存密钥」才写进钥匙串。
 - **对话按新闻自动保存**：同一条新闻的对话存在同一个会话里，杀掉 App 重开还在；
   按最后更新**最多保留最近 50 条**，超出淘汰最旧（设置页里写明）。
   弹窗里的垃圾桶按钮只清**当前这条**；全清是「设置 → 对话记录 → 清除对话记录」（会先弹确认）。
 - **费用**：模型那边按你所用服务商计费；搜索工具每搜一次、每读一个网页也算一次调用
-  （AnySearch 匿名有免费额度；Tavily 按你自己账号的额度计）。所以模型在一轮里连搜三次，就是三次搜索的量。
+  （AnySearch 匿名有免费额度；Tavily / SerpAPI / Exa / Serper 按你自己账号的额度计）。
+  所以模型在一轮里连搜三次，就是三次搜索的量。
 - **一次提问最多跑 5 轮工具**，防止它来回搜个没完。
 - **国内网络**：`api.anthropic.com` 直连通常不通，接口地址可以填兼容 Anthropic Messages 协议的
   中转地址。**只支持 https**：iOS 默认不允许明文 HTTP，填 `http://` 会明确报错；真要让某个
@@ -209,6 +216,7 @@ AIHOT/
                             AIChatConfig、AIChatRequestBuilder、AIChatNewsContext、
                             AIChatSecretStore（钥匙串）、AIChatAPI（AI 对话）、
                             AnySearchAPI（联网搜索 / 读网页）、TavilyAPI（联网搜索另一家）、
+                            SearchToolChain（五家按用户顺序回退）、SerpAPI / ExaAPI / SerperAPI（另外三家）、
                             ChatHistoryStore（对话按新闻落盘，Application Support）
   Features/Common/          SafariView（SFSafariViewController，可选阅读器模式 + WebLinkSheet）
   Features/Hot/             榜单页、大卡、紧凑行、RelativeTime
@@ -249,9 +257,10 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 | 下拉刷新像「没反应」 | 这是有意的：60 秒内不重复请求（接口 s-maxage 约定）。等过 60 秒再拉，或直接杀掉重开 |
 | 显示「请求过于频繁」 | 碰到接口 429，App 会在 `Retry-After` 到期前不再发请求，等提示的时间过去即可 |
 | 对话报 400，且错误里提到 fallback / anthropic-beta | 那是 `AIChatRequestBuilder.enableRefusalFallbacks` 那两行（`fallbacks` + beta 头）没被服务端接受。把它改成 `false` 即可 |
-| 对话报「密钥无效或没有权限」 | 检查「设置 → AI 对话」里协议与 Key 是否对得上（模型 Key 与搜索 Key 是分开存的四份） |
-| 对话里搜不到东西 / 报「搜索失败」 | 先看「设置 → AI 对话 → 搜索工具」选的是谁，再看错误里的原话。AnySearch：匿名有免费额度，用光了要么换个 Key 要么等，**Key 无效时它不会退回匿名**（把搜索 Key 清空即可继续用匿名）；Tavily：报「Key 无效或已停用」就换一个 Key，或把搜索工具切回 AnySearch |
-| 对话报「还没填 Tavily 的 Key」 | 搜索工具选了 Tavily 但 Key 字段是空的（Tavily 不支持匿名）。到「设置 → AI 对话」填一个，或把搜索工具切回 AnySearch（它能匿名） |
+| 对话报「密钥无效或没有权限」 | 检查「设置 → AI 对话」里协议与 Key 是否对得上（模型 Key 与搜索 Key 是分开存的七份） |
+| 对话里搜不到东西 / 报「搜索失败」 | 看错误里点名的是**哪一家** —— 全部失败时，报的一定是**排第一**那家的错 → 到「设置 → AI 对话 → 搜索工具」查那家的 Key 与开关。AnySearch：匿名有免费额度，用光了要么换个 Key 要么等，**Key 无效时它不会退回匿名**（把搜索 Key 清空即可继续用匿名）；Tavily / Exa：报「Key 无效或已停用」就换一个 Key，或把它停用让下一家顶上；SerpAPI / Serper 同理（这两家只能搜索） |
+| 对话报「没有可用的搜索工具」 | 搜索工具全被停用了，或必填的 Key 都没填（AnySearch 也停用了）。到「设置 → AI 对话 → 搜索工具」启用一家并填好 Key；AnySearch 留空 Key 即用匿名 |
+| 对话报「没有能读网页的工具」 | 能读网页的三家（AnySearch / Tavily / Exa）要么停用要么没填 Key —— SerpAPI、Serper 只支持搜索，顶不上。启用其中一家即可（AnySearch 可匿名） |
 | 模型反复调同一个工具、或根本不搜 | 工具名/参数写错时它会收到 is_error 并自己重试；若一直如此，把当轮的错误信息发出来（界面会显示接口原话） |
 | 对话报「接口地址是 http」 | iOS 默认不允许明文 HTTP。改用 https，或按第 4 节给该地址单独加例外 |
 | 对话一直不出字、结束后才一次性冒出来 | 若走的是自己的中转，确认它没有压缩/缓存响应；App 侧已经显式要求 `Accept-Encoding: identity` |
@@ -293,8 +302,11 @@ AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解
 - [ ] （走 Anthropic 时）问一个需要联网的问题，状态行出现「正在联网搜索…」
 - [ ] 问一个需要联网的问题（如「这条有后续吗」），状态行出现「正在联网搜索：…」，回答里带来源
 - [ ] 把 AnySearch Key 留空也能搜（匿名）
-- [ ] 「搜索工具」切到 Tavily：下面的 Key 字段跟着换成 Tavily 的（占位「Tavily 不支持匿名」），切回 AnySearch 再换回来，两个字段互不串
-- [ ] 选 Tavily 但没填 Key 时问一个需要联网的问题：报「还没填 Tavily 的 Key…」（不发网络请求）
+- [ ] 搜索工具调顺序（↑↓）、拨开关后杀掉 App 重开：顺序与开关都还在；升级首启时旧的单选值排第一、其余全默认启用
+- [ ] 第一家 Key 填错、第二家正确：问一个需要联网的问题，第二家出结果（**回退真实发生**）；把两家都弄失败，报错点名的是**排第一**那家、后几家的原话不出现
+- [ ] 问一个需要打开网页的问题：SerpAPI / Serper 即使排在最前也不被调用（仅搜索的家自动跳过）；只剩它们时给「没有能读网页的工具…」
+- [ ] 设置行内提示各就各位：停用的显示「已停用」，必填没 Key 的显示「未填 Key，暂不参与」（橙色），AnySearch 显示「留空即用匿名」
+- [ ] 选 Tavily 但没填 Key：Tavily 被自动跳过（不发网络请求），由后面有 Key 的家接上
 - [ ] 生成中点「停止」能立刻停下，而且**不**弹错误条
 - [ ] 问一轮 → 杀掉 App → 重开，同一条新闻的对话还在；换一条新闻是另一场对话（各存各的）
 - [ ] 弹窗垃圾桶只清当前这一条；「设置 → 对话记录 → 清除对话记录」确认后全部清空；「清除本地缓存」之后对话与收藏都还在

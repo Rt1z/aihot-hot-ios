@@ -27,9 +27,10 @@ struct AIChatMessage: Identifiable, Equatable {
 /// 都会走到，所以中途杀 App 只会丢「最后一轮还在流的那句」。
 /// 垃圾桶按钮（`reset`）连盘一起删。`sessionKey == nil`（测试与默认构造）不落盘。
 ///
-/// 工具循环：模型可以要求调用 `web_search` / `read_url`，由设置里选的搜索工具
-/// （AnySearch 或 Tavily，见 `makeSearchRunner()`）执行，结果作为 tool_result 回传，
-/// 直到它给出最终回答。两家协议的工具块形状完全不同，
+/// 工具循环：模型可以要求调用 `web_search` / `read_url`，由设置里的搜索工具按
+/// **用户顺序**执行（优先级 + 失败自动回退，见 `SearchToolChain` 与
+/// `makeSearchChain()`），结果作为 tool_result 回传，直到它给出最终回答。
+/// 两家协议的工具块形状完全不同，
 /// 但都先被 `SSEParser` 归一成同一套事件、再由 `AIChatToolCallAccumulator` 拼好，
 /// 所以这个循环本身不必分协议。
 ///
@@ -112,7 +113,7 @@ final class AIChatModel: ObservableObject {
             item: item, story: story, prefetchedDigest: prefetchedDigest
         )
         let system = AIChatNewsContext.system
-        let searchRunner = Self.makeSearchRunner()
+        let searchRunner = Self.makeSearchChain()
 
         streamTask = Task { [weak self] in
             await self?.run(
@@ -125,13 +126,30 @@ final class AIChatModel: ObservableObject {
         }
     }
 
-    /// 按设置造当前的搜索工具执行者（Key 读取也收在这一处）。
-    /// 工具声明是提供方无关的，所以切换只换执行者，请求体一行不动。
-    private static func makeSearchRunner() -> any AIChatToolExecuting {
-        switch AppSettings.searchToolProvider {
-        case .anySearch: return AnySearchToolRunner(apiKey: AppSettings.anySearchKey())
-        case .tavily: return TavilyToolRunner(apiKey: AppSettings.tavilyKey())
+    /// 按设置造一次发送用的**搜索工具回退链**。顺序 / 停用 / Key / 各家 runner
+    /// 都在这一处读齐、收进快照 —— send 中途改设置不影响进行中的对话。
+    /// 工具声明是提供方无关的，所以换顺序/换家只换执行者，请求体一行不动。
+    private static func makeSearchChain() -> any AIChatToolExecuting {
+        let secrets = AIChatSecretStore.shared
+        var keys: [AppSettings.SearchToolProvider: String] = [:]
+        var runners: [AppSettings.SearchToolProvider: any AIChatToolExecuting] = [:]
+        for provider in AppSettings.SearchToolProvider.allCases {
+            let key = secrets.searchKey(for: provider)
+            keys[provider] = key
+            switch provider {
+            case .anySearch: runners[provider] = AnySearchToolRunner(apiKey: key)
+            case .tavily: runners[provider] = TavilyToolRunner(apiKey: key)
+            case .serpapi: runners[provider] = SerpAPIToolRunner(apiKey: key)
+            case .exa: runners[provider] = ExaToolRunner(apiKey: key)
+            case .serper: runners[provider] = SerperToolRunner(apiKey: key)
+            }
         }
+        return SearchToolChain(
+            order: AppSettings.searchToolOrder,
+            disabled: AppSettings.searchToolDisabled,
+            keys: keys,
+            runners: runners
+        )
     }
 
     /// 停止生成。不停止的话请求会继续跑、继续计费，而界面上已经看不见了。

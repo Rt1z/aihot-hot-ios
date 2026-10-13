@@ -100,8 +100,31 @@ final class AIChatSecretStoreTests: XCTestCase {
         XCTAssertEqual(store.key(for: .anthropicMessages), "sk-trim", "粘贴密钥时最容易带上换行")
     }
 
-    /// clear() 必须把**四份**密钥全清掉：两条协议 + AnySearch + Tavily。
-    func testClearRemovesEverything() {
+    /// 七槽互不相干：两条对话协议 + 五家搜索，键控 API 各存各的。
+    func testStoresAllSevenSlotsSeparately() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+
+        store.setKey("sk-llm", for: .anthropicMessages)
+        store.setKey("sk-oai", for: .openAICompatible)
+        for (index, provider) in AppSettings.SearchToolProvider.allCases.enumerated() {
+            store.setSearchKey("key-\(index)", for: provider)
+        }
+
+        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-llm")
+        XCTAssertEqual(store.key(for: .openAICompatible), "sk-oai")
+        for (index, provider) in AppSettings.SearchToolProvider.allCases.enumerated() {
+            XCTAssertEqual(store.searchKey(for: provider), "key-\(index)",
+                           "\(provider.title) 的槽位不许串")
+        }
+        XCTAssertEqual(backend.storage.count, 7, "七份各占一个 account")
+    }
+
+    /// clear() 必须把**七份**密钥全清掉：两条协议 + 五家搜索。
+    func testClearRemovesAllSevenSlots() {
         let (name, defaults) = makeSuite()
         defer { defaults.removePersistentDomain(forName: name) }
 
@@ -109,61 +132,63 @@ final class AIChatSecretStoreTests: XCTestCase {
         let store = AIChatSecretStore(backend: backend, defaults: defaults)
         store.setKey("a", for: .anthropicMessages)
         store.setKey("b", for: .openAICompatible)
-        store.setAnySearchKey("c")
-        store.setTavilyKey("d")
+        for (index, provider) in AppSettings.SearchToolProvider.allCases.enumerated() {
+            store.setSearchKey("key-\(index)", for: provider)
+        }
 
         store.clear()
         XCTAssertEqual(store.key(for: .anthropicMessages), "")
         XCTAssertEqual(store.key(for: .openAICompatible), "")
-        XCTAssertEqual(store.anySearchKey(), "")
-        XCTAssertEqual(store.tavilyKey(), "")
+        for provider in AppSettings.SearchToolProvider.allCases {
+            XCTAssertEqual(store.searchKey(for: provider), "", "\(provider.title) 也要清掉")
+        }
         XCTAssertTrue(backend.storage.isEmpty)
     }
 
-    /// Tavily 的 Key 是独立的一份，且**必填**（没有匿名模式）——
-    /// 与 AnySearch 那份互不相干，也不随协议切换串味。
-    func testTavilyKeyIsSeparateAndRequired() {
+    /// 每家的降级标记各自独立：一家降级不该让别家也显示「已降级」。
+    func testEachSearchProviderHasItsOwnFallbackFlag() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        backend.failWrites = true
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+
+        XCTAssertFalse(store.setSearchKey("tavily-key", for: .tavily))
+        XCTAssertFalse(store.setSearchKey("serpapi-key", for: .serpapi))
+        XCTAssertTrue(store.isUsingSearchFallback(for: .tavily))
+        XCTAssertTrue(store.isUsingSearchFallback(for: .serpapi))
+        XCTAssertFalse(store.isUsingSearchFallback(for: .exa), "没写过的家不该显示降级")
+        XCTAssertEqual(store.searchKey(for: .tavily), "tavily-key", "降级后必须读得回来")
+
+        // 后来钥匙串能写了：重写的那家退出降级，另一家不动
+        backend.failWrites = false
+        XCTAssertTrue(store.setSearchKey("tavily-key-2", for: .tavily))
+        XCTAssertFalse(store.isUsingSearchFallback(for: .tavily))
+        XCTAssertTrue(store.isUsingSearchFallback(for: .serpapi), "没动过的家保持原状")
+    }
+
+    /// 必填与可选之分不在存储层：清空就是「没填」。AnySearch 清空后照样参与（匿名），
+    /// Tavily 清空后由链直接跳过 —— 存储只负责「存哪、怎么清」。
+    func testClearingAKeyJustMeansNotFilled() {
         let (name, defaults) = makeSuite()
         defer { defaults.removePersistentDomain(forName: name) }
 
         let backend = FakeSecretBackend()
         let store = AIChatSecretStore(backend: backend, defaults: defaults)
 
-        store.setKey("sk-llm", for: .anthropicMessages)
-        store.setAnySearchKey("as-search")
-        store.setTavilyKey("tvly-key")
+        store.setSearchKey("as-search", for: .anySearch)
+        store.setSearchKey("tvly-key", for: .tavily)
+        XCTAssertEqual(store.searchKey(for: .anySearch), "as-search")
+        XCTAssertEqual(store.searchKey(for: .tavily), "tvly-key")
 
-        XCTAssertEqual(store.tavilyKey(), "tvly-key")
-        XCTAssertEqual(store.anySearchKey(), "as-search")
-        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-llm", "三份互不相干")
-        XCTAssertFalse(store.isUsingTavilyFallback())
+        store.setSearchKey("", for: .tavily)
+        XCTAssertEqual(store.searchKey(for: .tavily), "", "清空就是「没填」，不是错误")
+        XCTAssertFalse(store.isUsingSearchFallback(for: .tavily))
+        XCTAssertEqual(store.searchKey(for: .anySearch), "as-search", "别家不受影响")
 
-        store.setTavilyKey("")
-        XCTAssertEqual(store.tavilyKey(), "", "清空就是「没填」，让工具直接回错而不是发一个会 401 的请求")
-
-        store.clear()
-        XCTAssertEqual(store.tavilyKey(), "")
-        XCTAssertTrue(backend.storage.isEmpty)
-    }
-
-    /// AnySearch 的 Key 是独立的一份，而且**可选**：清空之后搜索照样能用（匿名）。
-    func testAnySearchKeyIsSeparateAndOptional() {
-        let (name, defaults) = makeSuite()
-        defer { defaults.removePersistentDomain(forName: name) }
-
-        let backend = FakeSecretBackend()
-        let store = AIChatSecretStore(backend: backend, defaults: defaults)
-
-        store.setKey("sk-llm", for: .anthropicMessages)
-        store.setAnySearchKey("as-search")
-        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-llm")
-        XCTAssertEqual(store.anySearchKey(), "as-search")
-
-        store.setAnySearchKey("")
-        XCTAssertEqual(store.anySearchKey(), "", "留空就是匿名，不是错误")
-
-        store.clear()
-        XCTAssertEqual(store.key(for: .anthropicMessages), "")
-        XCTAssertEqual(store.anySearchKey(), "")
+        store.setSearchKey("", for: .anySearch)
+        XCTAssertEqual(store.searchKey(for: .anySearch), "", "留空就是匿名，不是错误")
+        XCTAssertTrue(backend.storage.isEmpty, "空值两处都清干净")
     }
 }

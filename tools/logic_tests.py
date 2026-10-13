@@ -913,6 +913,243 @@ def report_timeline(story):
 
 
 # --------------------------------------------------------------------------
+# 镜像 14：SerpAPI / Serper / Exa 三家响应解析（与三个新 Service 对应）
+# --------------------------------------------------------------------------
+# 输入都是「已解析的 200 响应」。三家线格式各不相同，解析规则与 Swift 逐条对应；
+# 错误详情提取也在这里 —— 三家的错误信封互不相同（单字段 error / 顶层 message /
+# 信封 error 字符串），`AIChatAPI.problemMessage` 只认得 Serper 那种。
+
+
+def _search_sections(items, provider):
+    """三家共用的结果拼装：`### {序号}. {标题}\n{URL}\n\n{摘要}`。
+
+    标题就是链接时不重复印 URL（SerpAPI 真夹具第 1 条就是这样）；
+    条目字段可容缺，零条抛错，绝不回空串。
+    """
+    sections = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError(provider + " 返回了看不懂的内容")
+        title = (item.get("title") or "").strip()
+        link = (item.get("link") or item.get("url") or "").strip()
+        snippet = (item.get("snippet") or item.get("text") or "").strip()
+        if not title and not link and not snippet:
+            continue  # 空壳条目跳过
+        heading = title or link
+        section = "### %d. %s" % (len(sections) + 1, heading)
+        if link and link != heading:
+            section += "\n" + link
+        if snippet:
+            section += "\n\n" + snippet
+        sections.append(section)
+    if not sections:
+        raise ValueError(provider + " 没有返回可用内容")
+    return "\n\n".join(sections)
+
+
+def serpapi_search_text(payload):
+    """与 SerpAPI.searchText 对应。
+
+    **先查顶层 error**（200 也可能带报错），再解析 organic_results；snippet 容缺。
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("SerpAPI 返回了看不懂的内容")
+    error = (payload.get("error") or "").strip()
+    if error:
+        raise ValueError("SerpAPI 报错：" + error)
+    organic = payload.get("organic_results")
+    if organic is not None and not isinstance(organic, list):
+        raise ValueError("SerpAPI 返回了看不懂的内容")
+    return _search_sections(organic or [], "SerpAPI")
+
+
+def serper_search_text(payload):
+    """与 SerperAPI.searchText 对应。
+
+    防御性查顶层 error / message（200 带报错的形状没抓过，文档不可达）：
+    error 先查；零条时 message 比「没有内容」更能说明原因。
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Serper 返回了看不懂的内容")
+    error = (payload.get("error") or "").strip()
+    if error:
+        raise ValueError("Serper 报错：" + error)
+    organic = payload.get("organic")
+    if organic is not None and not isinstance(organic, list):
+        raise ValueError("Serper 返回了看不懂的内容")
+    try:
+        return _search_sections(organic or [], "Serper")
+    except ValueError as exc:
+        if "没有返回可用内容" not in str(exc):
+            raise
+        message = (payload.get("message") or "").strip()
+        if message:
+            raise ValueError("Serper 报错：" + message)
+        raise
+
+
+def exa_search_text(payload):
+    """与 ExaAPI.searchText 对应：results[] → 同款 Markdown；先查顶层 error（防御）。"""
+    if not isinstance(payload, dict):
+        raise ValueError("Exa 返回了看不懂的内容")
+    error = (payload.get("error") or "").strip()
+    if error:
+        raise ValueError("Exa 报错：" + error)
+    results = payload.get("results")
+    if results is not None and not isinstance(results, list):
+        raise ValueError("Exa 返回了看不懂的内容")
+    return _search_sections(results or [], "Exa")
+
+
+def exa_contents_text(payload):
+    """与 ExaAPI.contentsText 对应。
+
+    **先查 statuses[]**：HTTP 200 也可能有失败条目（Tavily failed_results 的
+    同款陷阱，规则 13 的教训）——非空必抛，哪怕同时有成功结果；然后拼
+    results[].text（每条 trim 后非空才收），零条抛错。
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Exa 返回了看不懂的内容")
+    statuses = payload.get("statuses")
+    if isinstance(statuses, list):
+        failed = []
+        for entry in statuses:
+            if not isinstance(entry, dict):
+                continue
+            status = (entry.get("status") or "").strip().lower()
+            if status and status != "success":
+                failed.append(entry)
+        if failed:
+            first = failed[0]
+            reason = (first.get("error") or "").strip()
+            page = (first.get("id") or "").strip()
+            status = (first.get("status") or "").strip()
+            detail = reason
+            if not detail and page:
+                detail = page + " 提取失败"
+            if not detail:
+                detail = "状态：" + status if status else "有页面没能提取"
+            raise ValueError("Exa 提取失败：" + detail)
+    results = payload.get("results")
+    if results is not None and not isinstance(results, list):
+        raise ValueError("Exa 返回了看不懂的内容")
+    contents = []
+    for item in results or []:
+        if not isinstance(item, dict):
+            continue
+        text = (item.get("text") or "").strip()
+        if text:
+            contents.append(text)
+    if not contents:
+        raise ValueError("Exa 没有返回可用内容")
+    return "\n\n".join(contents)
+
+
+def serpapi_top_error(payload):
+    """SerpAPI 错误体是**单字段** `{"error": "…"}`（problemMessage 认不出这种信封）。"""
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if isinstance(error, str) and error.strip():
+        return error.strip()
+    return None
+
+
+def serper_error_detail(payload):
+    """Serper 错误体是顶层 `{"message": …}` —— problemMessage 认得的形状，
+    这里镜像它的取法（信封 error.message 优先，顶层 message 其次）。"""
+    if not isinstance(payload, dict):
+        return None
+    envelope = payload.get("error")
+    if isinstance(envelope, dict):
+        message = envelope.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return None
+
+
+def exa_top_error(payload):
+    """Exa 错误信封 `{requestId, error, tag}` 里 error 是**字符串**（不是对象）。"""
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if isinstance(error, str) and error.strip():
+        return error.strip()
+    return None
+
+
+# --------------------------------------------------------------------------
+# 镜像 15：搜索工具的顺序规范化与回退选择
+# --------------------------------------------------------------------------
+# 两张能力表是与 Swift `AppSettings.SearchToolProvider` 的**镜像契约**
+# （规则 4：Swift 是权威，这里照抄；改了那边不改这边，镜像会安静地错）。
+
+SEARCH_PROVIDERS = ["anySearch", "tavily", "serpapi", "exa", "serper"]
+SEARCH_SUPPORTS_READ_URL = {
+    "anySearch": True, "tavily": True, "serpapi": False, "exa": True, "serper": False,
+}
+SEARCH_REQUIRES_KEY = {
+    "anySearch": False, "tavily": True, "serpapi": True, "exa": True, "serper": True,
+}
+
+
+def eligible_providers(order, disabled, keys, tool):
+    """与 `SearchToolChain.eligibleProviders` 对应。
+
+    停用跳过 → read_url 跳过不支持读网页的家 → 必填 Key 空白跳过；
+    AnySearch 不要求 Key（空 Key **保留**，匿名合法）。保持用户顺序。
+    """
+    needs_read_url = tool == "read_url"
+    eligible = []
+    for provider in order:
+        if provider in disabled:
+            continue
+        if needs_read_url and not SEARCH_SUPPORTS_READ_URL[provider]:
+            continue
+        if SEARCH_REQUIRES_KEY[provider]:
+            if not (keys.get(provider) or "").strip():
+                continue
+        eligible.append(provider)
+    return eligible
+
+
+def normalize_search_order(stored, legacy_single_raw):
+    """与 `AppSettings.normalizeSearchToolOrder` 对应。
+
+    stored 非 nil：丢未知、首次出现去重、缺的追加到末尾（前向兼容）；
+    stored 为 nil（从没 reorder 过）：旧单选值排第一再补齐；`[]` 自愈为规范顺序。
+    """
+    seen = set()
+    order = []
+
+    def append(provider):
+        if provider in seen:
+            return
+        seen.add(provider)
+        order.append(provider)
+
+    if stored is not None:
+        for raw in stored:
+            if raw in SEARCH_PROVIDERS:
+                append(raw)
+    elif legacy_single_raw in SEARCH_PROVIDERS:
+        append(legacy_single_raw)
+    for provider in SEARCH_PROVIDERS:
+        append(provider)
+    return order
+
+
+def normalize_disabled(stored):
+    """与 `AppSettings.normalizeSearchToolDisabled` 对应：nil = 全启用；丢未知、去重。"""
+    if stored is None:
+        return set()
+    return {raw for raw in stored if raw in SEARCH_PROVIDERS}
+
+
+# --------------------------------------------------------------------------
 # 断言（全部以夹具为准）
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
@@ -1434,6 +1671,155 @@ def run():
     check_eq(trim_sessions(synth[:50]), synth[:50],
              "恰好 50 条时原样返回，不重排")
     check(trim_sessions([]) == [], "空的照样是空的")
+
+    print("")
+    print("== 镜像 14：SerpAPI / Serper / Exa 响应解析 ==")
+    # 四份成功夹具 + 三份错误夹具都是真抓的字节；断言全部从字节推导。
+    # `raises` 是镜像 8 处定义的闭包（ValueError + 可选原话），这里继续用。
+
+    serpapi_search = fixture_json("serpapi-search.json")
+    sp_organic = serpapi_search.get("organic_results") or []
+    check_eq(len(sp_organic), 9, "SerpAPI 夹具抓到 9 条 organic_results")
+    check_eq(sum(1 for item in sp_organic if item.get("snippet")), 7,
+             "其中 7 条有 snippet（2 条容缺）")
+    sp_text = serpapi_search_text(serpapi_search)
+    check(sp_text.startswith("### 1. https://news.qq.com/rain/a/20251209A04T2S00"),
+          "第 1 条 title==link，直接当标题")
+    check_eq(sp_text.count("https://news.qq.com/rain/a/20251209A04T2S00"), 1,
+             "title 就是链接时只出现一次（不标题一行再加链接一行）")
+    check("### 3. Karpathy：80 亿人被AI 认知鸿沟分成四个层级" in sp_text, "第 3 条标题")
+    check("No information is available for this page." in sp_text, "第 2 条抓到的 snippet 原文")
+    check_eq(sp_text.count("### "), 9, "9 条一条不能丢（含 2 条没 snippet 的）")
+    # 200 带顶层 error 的分支没有免费触发的办法（合成）
+    raises(lambda: serpapi_search_text(
+        {"error": "Your account has run out of searches.", "organic_results": []}),
+        "200 带顶层 error 要抛错并带原话", "run out of searches")
+    raises(lambda: serpapi_search_text({"organic_results": []}),
+           "零结果要抛错，而不是回空串", "没有返回可用内容")
+    raises(lambda: serpapi_search_text("not json"), "非对象要抛错")
+
+    serper_search = fixture_json("serper-search.json")
+    sr_organic = serper_search.get("organic") or []
+    check_eq(len(sr_organic), 10, "Serper 夹具抓到 10 条 organic")
+    check_eq(sum(1 for item in sr_organic if item.get("snippet")), 10, "10 条全有 snippet")
+    sr_text = serper_search_text(serper_search)
+    check(sr_text.startswith("### 1. Berryxia.AI on X"), "第 1 条标题")
+    check("认知鸿沟一次性说透" in sr_text, "第 1 条抓到的 snippet 原文")
+    check("### 10. Karpathy：LLM 能力认知鸿沟正扩大为漏斗" in sr_text, "最后一条（第 10 条）")
+    check_eq(sr_text.count("### "), 10, "10 条一条不能丢")
+    check("6 months ago" not in sr_text,
+          "`date` 字段（真值 '6 months ago'）不解析、不进输出")
+    # 防御分支（200 带报错的形状没抓过，合成）
+    raises(lambda: serper_search_text(
+        {"error": "quota exceeded", "organic": []}),
+        "200 带顶层 error 要抛错并带原话", "quota exceeded")
+    raises(lambda: serper_search_text(
+        {"organic": [], "message": "insufficient credits"}),
+        "零条时 message 比「没有内容」更能说明原因", "insufficient credits")
+    raises(lambda: serper_search_text({"organic": []}),
+           "零结果要抛错", "没有返回可用内容")
+    raises(lambda: serper_search_text("not json"), "非对象要抛错")
+
+    exa_search = fixture_json("exa-search.json")
+    ex_results = exa_search.get("results") or []
+    check_eq(len(ex_results), 5, "Exa 搜索夹具抓到 5 条 results")
+    check_eq([len(item.get("text") or "") for item in ex_results], [500] * 5,
+             "maxCharacters: 500 实测生效：每条 text 恰 500 字")
+    ex_text = exa_search_text(exa_search)
+    check(ex_text.startswith("### 1. Karpathy 主帖：从我的时间线来看"), "第 1 条标题")
+    check("https://www.cnblogs.com/gyc567/p/19848269" in ex_text, "条目里带 URL")
+    check("第一部分" in ex_text, "第 1 条抓到的 text 原文")
+    check("### 5. Karpathy：对 LLM 能力的共识" in ex_text, "最后一条（第 5 条）")
+    check_eq(ex_text.count("### "), 5, "5 条一条不能丢")
+    raises(lambda: exa_search_text(
+        {"error": "billing issue", "results": [{"title": "T"}]}),
+        "200 带顶层 error 要抛错（合成）", "billing issue")
+    raises(lambda: exa_search_text({"results": []}),
+           "零结果要抛错", "没有返回可用内容")
+    raises(lambda: exa_search_text("not json"), "非对象要抛错")
+
+    exa_contents = fixture_json("exa-contents.json")
+    check_eq(len(exa_contents.get("results") or []), 1, "读网页夹具是单个页面")
+    check_eq(exa_contents.get("statuses"),
+             [{"id": "https://karpathy.bearblog.dev/year-in-review-2025/",
+               "status": "success", "source": "cached"}],
+             "statuses 全 success（id 就是 URL）—— 不该触发提取失败")
+    ct_text = exa_contents_text(exa_contents)
+    check(ct_text.startswith("2025 LLM Year in Review – karpathy"),
+          "正文原样返回，不套标题块")
+    check(ct_text.endswith("Strap in."), "抓到的正文结尾")
+    check_eq(len(ct_text), 10689,
+             "请求了 8000、实测回了 10689 —— 从字节推导（clamp 在 Swift 侧兜底）")
+    # statuses 失败分支没有免费触发的办法（合成）—— Tavily failed_results 的同款陷阱
+    raises(lambda: exa_contents_text(
+        {"results": [{"url": "https://ok.com", "text": "正文"}],
+         "statuses": [{"id": "https://bad.com", "status": "failure"}]}),
+        "HTTP 200 有失败 statuses 要抛错并点名页面", "bad.com")
+    raises(lambda: exa_contents_text(
+        {"results": [{"url": "https://ok.com", "text": "正文"}],
+         "statuses": [{"id": "https://bad.com", "status": "failure", "error": "fetch failed"}]}),
+        "有原话优先用原话", "fetch failed")
+    raises(lambda: exa_contents_text({"results": [], "statuses": []}),
+           "没正文要抛错", "没有返回可用内容")
+    raises(lambda: exa_contents_text("not json"), "非对象要抛错")
+
+    # 三份错误夹具的形状与详情提取（文案本身由 Swift 测试钉；镜像只钉形状与提取）
+    sp_error = fixture_json("serpapi-error.json")
+    check_eq(sorted(sp_error.keys()), ["error"], "SerpAPI 错误体是单字段 error")
+    check((serpapi_top_error(sp_error) or "").startswith("Invalid API key."),
+          "单字段原话提取得到完整一句")
+    check("api_key=" not in (serpapi_top_error(sp_error) or ""),
+          "原话本身不含查询串片段 —— 带出原话不等于带出 Key")
+    sr_error = fixture_json("serper-error.json")
+    check_eq(sr_error, {"message": "Unauthorized.", "statusCode": 403},
+             "Serper 错误体：文档不可达，形状全靠错 Key 探针抓的这 44 字节")
+    check_eq(serper_error_detail(sr_error), "Unauthorized.",
+             "顶层 message 提取（problemMessage 认得的形状）")
+    ex_error = fixture_json("exa-error.json")
+    check_eq(sorted(ex_error.keys()), ["error", "requestId", "tag"],
+             "Exa 错误信封三件套")
+    check((exa_top_error(ex_error) or "").startswith("Invalid API key."),
+          "信封里 error 是字符串，直接提取")
+    check_eq(ex_error.get("tag"), "INVALID_API_KEY",
+             "tag 是诊断信息，不参与状态码分支")
+    check_eq(serper_error_detail({"error": {"message": "嵌套信封"}}), "嵌套信封",
+             "problemMessage 式的信封优先（合成）")
+
+    print("")
+    print("== 镜像 15：搜索工具的顺序规范化与回退选择 ==")
+    # 规范化（与 AppSettings 的两个纯函数对应）
+    check_eq(normalize_search_order(None, "tavily"),
+             ["tavily", "anySearch", "serpapi", "exa", "serper"],
+             "升级首启：旧单选值排第一，其余按声明顺序补齐")
+    check_eq(normalize_search_order(None, None), SEARCH_PROVIDERS, "没旧值就是规范顺序")
+    check_eq(normalize_search_order(None, "bogus"), SEARCH_PROVIDERS,
+             "旧值非法（将来枚举变了）也退回规范顺序")
+    check_eq(normalize_search_order(["serper", "anySearch", "bogus", "serper"], "tavily"),
+             ["serper", "anySearch", "tavily", "serpapi", "exa"],
+             "丢未知、首次出现去重、缺的追加到末尾；legacy 只在 stored 为 nil 时才看")
+    check_eq(normalize_search_order([], "tavily"), SEARCH_PROVIDERS,
+             "空数组自愈为规范顺序，不读旧键")
+    check_eq(normalize_disabled(None), set(), "没动过开关 = 全启用")
+    check_eq(normalize_disabled(["serpapi", "bogus", "serpapi"]), {"serpapi"},
+             "丢未知、去重")
+
+    # 回退选择（与 SearchToolChain.eligibleProviders 对应）
+    full_keys = {"tavily": "k", "serpapi": "k", "exa": "k", "serper": "k"}
+    check_eq(eligible_providers(SEARCH_PROVIDERS, set(), full_keys, "web_search"),
+             SEARCH_PROVIDERS, "全启用、Key 都填了：五家全上、保持用户顺序")
+    check_eq(eligible_providers(SEARCH_PROVIDERS, set(), full_keys, "read_url"),
+             ["anySearch", "tavily", "exa"],
+             "read_url 自动跳过只搜索的两家（能力矩阵 ✗）")
+    check_eq(eligible_providers(SEARCH_PROVIDERS, {"serper"}, full_keys, "web_search"),
+             ["anySearch", "tavily", "serpapi", "exa"], "停用的跳过")
+    check_eq(eligible_providers(["serpapi", "anySearch"], set(), {"serpapi": "   "}, "web_search"),
+             ["anySearch"], "必填 Key 是空白 = 没填 = 不参与")
+    check_eq(eligible_providers(["anySearch"], set(), {}, "web_search"),
+             ["anySearch"], "AnySearch 空 Key 保留（匿名合法，不能被必填过滤误杀）")
+    check_eq(eligible_providers(SEARCH_PROVIDERS, set(SEARCH_PROVIDERS), full_keys, "web_search"),
+             [], "全停用 → 一个可试的家都没有（走「没有可用的搜索工具」）")
+    check_eq(eligible_providers(["serpapi", "serper"], set(), full_keys, "read_url"),
+             [], "只剩只搜索的家时 read_url 无解（走「没有能读网页的工具」）")
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)
