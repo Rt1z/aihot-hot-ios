@@ -61,6 +61,20 @@ final class SearchToolSettingsUITests: XCTestCase {
         return false
     }
 
+    /// 等开关翻到期望状态。SwiftUI Toggle 的状态提交是异步的，`tap()` 后立刻读 `.value`
+    /// 可能还是旧值（第三次 CI 红：tap 成功、紧接着读没变 —— 换位用例能过是因为
+    /// 那边重排后睡了 0.8s 才断言）。轮询比固定睡眠稳：翻了就立刻走。
+    private func waitFor(_ toggle: XCUIElement, toBeOn expected: Bool, timeout: TimeInterval = 5) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isOn(toggle) == expected { return }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTFail(
+            "等了 \(timeout)s，开关没变成 \(expected ? "开" : "关")：\(toggle)；当前 value=\(String(describing: toggle.value))"
+        )
+    }
+
     /// 中间行 ↑：SerpAPI 与上面的 Tavily 换位；重开后顺序还在。
     func testMovingMiddleProviderUpwardsSwapsRowsAndPersists() {
         launchApp(resetSearchTools: true)
@@ -100,12 +114,12 @@ final class SearchToolSettingsUITests: XCTestCase {
         XCTAssertTrue(isOn(exa), "重置后 Exa 应该是开着的")
 
         exa.tap()
-        XCTAssertFalse(isOn(exa), "点一下没关掉")
+        waitFor(exa, toBeOn: false)
 
         app.terminate()
         launchApp(resetSearchTools: false)
         XCTAssertTrue(exa.waitForExistence(timeout: 10))
         reveal(exa)
-        XCTAssertFalse(isOn(exa), "重启后开关丢了")
+        waitFor(exa, toBeOn: false)
     }
 }
