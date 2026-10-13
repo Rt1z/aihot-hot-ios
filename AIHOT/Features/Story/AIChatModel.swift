@@ -3,19 +3,33 @@ import Foundation
 
 /// 界面上的一条消息。
 struct AIChatMessage: Identifiable, Equatable {
-    let id = UUID()
+    let id: UUID
     let role: AIChatTurn.Role
     var text: String
-    var isStreaming = false
+    var isStreaming: Bool
+
+    /// 恢复历史时要原样拿回旧 id（`ChatHistoryStore.StoredMessage.id`）；
+    /// 新消息用默认值，所以所有现有调用点（`AIChatMessage(role:text:)` 等）照常编译。
+    init(id: UUID = UUID(), role: AIChatTurn.Role, text: String, isStreaming: Bool = false) {
+        self.id = id
+        self.role = role
+        self.text = text
+        self.isStreaming = isStreaming
+    }
 }
 
 /// 详情页那个对话弹窗的状态与流式循环。
 ///
-/// 只活在这次弹窗打开期间：**不落盘**，关掉即随视图销毁（这也是为什么这里
-/// 没有任何持久化代码）。
+/// **按新闻落盘**：`sessionKey`（= `HotTopic.id`）非 nil 时，对话历史写进
+/// `ChatHistoryStore`（Application Support/chat-sessions.json —— 用户数据，
+/// 不是缓存，`clearCache()` 也碰不到它），杀掉 App 重开还在。保存时机是
+/// `finishStreaming()`，它在 `run` 的 `defer` 里 —— 成功、报错、取消三种收场
+/// 都会走到，所以中途杀 App 只会丢「最后一轮还在流的那句」。
+/// 垃圾桶按钮（`reset`）连盘一起删。`sessionKey == nil`（测试与默认构造）不落盘。
 ///
-/// 工具循环：模型可以要求调用 `web_search` / `read_url`，由 AnySearch 执行，
-/// 结果作为 tool_result 回传，直到它给出最终回答。两家协议的工具块形状完全不同，
+/// 工具循环：模型可以要求调用 `web_search` / `read_url`，由设置里选的搜索工具
+/// （AnySearch 或 Tavily，见 `makeSearchRunner()`）执行，结果作为 tool_result 回传，
+/// 直到它给出最终回答。两家协议的工具块形状完全不同，
 /// 但都先被 `SSEParser` 归一成同一套事件、再由 `AIChatToolCallAccumulator` 拼好，
 /// 所以这个循环本身不必分协议。
 ///
@@ -34,6 +48,9 @@ final class AIChatModel: ObservableObject {
     @Published private(set) var scrollTick = 0
 
     private let api: AIChatAPI
+    /// 这条对话属于哪条新闻（= `HotTopic.id`）。nil = 不落盘。
+    private let sessionKey: String?
+    private let historyStore: ChatHistoryStore
     private var streamTask: Task<Void, Never>?
     /// 攒起来的增量，还没刷进 messages。
     private var pendingText = ""
@@ -46,8 +63,19 @@ final class AIChatModel: ObservableObject {
     /// 一次提问里最多跑几轮工具。防止模型来回搜个没完 —— 每轮都是钱。
     private static let maximumToolRounds = 5
 
-    init(api: AIChatAPI = .shared) {
+    /// 构造时就恢复盘上的历史（首次渲染前完成，没有空屏闪烁）。
+    /// 恢复出来的消息一律是已完成的 —— 盘上从不存 `isStreaming`。
+    init(
+        api: AIChatAPI = .shared,
+        sessionKey: String? = nil,
+        historyStore: ChatHistoryStore = .shared
+    ) {
         self.api = api
+        self.sessionKey = sessionKey
+        self.historyStore = historyStore
+        if let sessionKey, let restored = historyStore.load(key: sessionKey) {
+            messages = restored
+        }
     }
 
     var canSend: Bool {
@@ -84,7 +112,7 @@ final class AIChatModel: ObservableObject {
             item: item, story: story, prefetchedDigest: prefetchedDigest
         )
         let system = AIChatNewsContext.system
-        let searchKey = AppSettings.anySearchKey()
+        let searchRunner = Self.makeSearchRunner()
 
         streamTask = Task { [weak self] in
             await self?.run(
@@ -92,8 +120,17 @@ final class AIChatModel: ObservableObject {
                 system: system,
                 newsContext: newsContext,
                 history: history,
-                searchKey: searchKey
+                searchRunner: searchRunner
             )
+        }
+    }
+
+    /// 按设置造当前的搜索工具执行者（Key 读取也收在这一处）。
+    /// 工具声明是提供方无关的，所以切换只换执行者，请求体一行不动。
+    private static func makeSearchRunner() -> any AIChatToolExecuting {
+        switch AppSettings.searchToolProvider {
+        case .anySearch: return AnySearchToolRunner(apiKey: AppSettings.anySearchKey())
+        case .tavily: return TavilyToolRunner(apiKey: AppSettings.tavilyKey())
         }
     }
 
@@ -111,6 +148,11 @@ final class AIChatModel: ObservableObject {
         statusText = nil
         flushTask?.cancel()
         flushTask = nil
+        // 清空 = 连盘一起删。被取消那轮的 defer 还会再跑一次 finishStreaming，
+        // 那时 messages 已空、persistSession 只会再删一次（幂等），不会把旧对话写回来。
+        if let sessionKey {
+            historyStore.delete(key: sessionKey)
+        }
     }
 
     // MARK: - 流式循环
@@ -139,7 +181,7 @@ final class AIChatModel: ObservableObject {
         system: String,
         newsContext: String,
         history: [AIChatTurn],
-        searchKey: String
+        searchRunner: any AIChatToolExecuting
     ) async {
         defer { finishStreaming() }
 
@@ -189,7 +231,7 @@ final class AIChatModel: ObservableObject {
                     return
                 }
 
-                let results = try await execute(round.toolCalls, searchKey: searchKey)
+                let results = try await execute(round.toolCalls, runner: searchRunner)
                 toolRounds.append(
                     AIChatToolRound(
                         assistantText: round.text,
@@ -318,12 +360,12 @@ final class AIChatModel: ObservableObject {
         return String(oneLine.prefix(200)) + "…"
     }
 
-    /// 跑模型要的工具。AnySearch 的 Key 是可选的（不填就匿名）。
+    /// 跑模型要的工具。执行者由调用方按设置造好传进来（AnySearch 或 Tavily），
+    /// 这里只负责循环：状态行、取消检查、逐个执行、拼回传载荷。
     private func execute(
         _ calls: [AIChatToolCall],
-        searchKey: String
+        runner: any AIChatToolExecuting
     ) async throws -> [AIChatToolRound.AIChatToolResultPayload] {
-        let runner = AnySearchToolRunner(apiKey: searchKey)
         var payloads: [AIChatToolRound.AIChatToolResultPayload] = []
 
         for call in calls {
@@ -484,6 +526,17 @@ final class AIChatModel: ObservableObject {
             if messages[index].text.isEmpty {
                 messages.removeLast()
             }
+        }
+        persistSession()
+    }
+
+    /// 把当前对话存进盘。每轮结束调一次（`run` 的 `defer` 覆盖成功/报错/取消）。
+    private func persistSession() {
+        guard let sessionKey else { return }
+        if messages.isEmpty {
+            historyStore.delete(key: sessionKey)
+        } else {
+            historyStore.save(messages: messages, key: sessionKey)
         }
     }
 

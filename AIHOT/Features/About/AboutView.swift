@@ -12,6 +12,7 @@ struct AboutView: View {
     @State private var safariURL: URL?
     @State private var copiedDiagnostics = false
     @State private var showClearFavorites = false
+    @State private var showClearChatHistory = false
 
     // MARK: - AI 对话配置
     //
@@ -20,6 +21,8 @@ struct AboutView: View {
 
     @AppStorage(AppSettings.aiChatProtocolKey)
     private var aiChatProtocolRaw: String = AIChatProtocol.anthropicMessages.rawValue
+    @AppStorage(AppSettings.aiChatSearchToolKey)
+    private var searchToolRaw: String = AppSettings.SearchToolProvider.anySearch.rawValue
     @AppStorage(AppSettings.aiChatAnthropicBaseURLKey)
     private var anthropicBaseURL: String = AIChatProtocol.anthropicMessages.defaultBaseURL
     @AppStorage(AppSettings.aiChatAnthropicModelKey)
@@ -36,6 +39,10 @@ struct AboutView: View {
     /// AnySearch 的 Key 是**可选**的：留空走匿名，搜索照样能用。
     @State private var anySearchKeyDraft = ""
     @State private var anySearchFellBack = false
+    /// Tavily 的 Key 是**必填**的（没有匿名模式）。两个搜索 Key 的草稿都常驻 @State、
+    /// load/save 一起读写 —— 切换搜索工具只是换显示哪个字段，不丢另一个的草稿。
+    @State private var tavilyKeyDraft = ""
+    @State private var tavilyFellBack = false
 
     @State private var isTestingConnection = false
     @State private var testResult: String?
@@ -81,6 +88,14 @@ struct AboutView: View {
                 }
                 .pickerStyle(.segmented)
 
+                // 工具声明是提供方无关的：切这里只换「谁来执行」，请求体不动
+                Picker("搜索工具", selection: $searchToolRaw) {
+                    ForEach(AppSettings.SearchToolProvider.allCases) { option in
+                        Text(option.title).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 // 标签单独一行而不是塞进 TextField 的 placeholder：
                 // 这两个字段默认就有值，placeholder 在填好之后就看不见了，
                 // 那样一行只剩个光秃秃的 URL。
@@ -120,16 +135,31 @@ struct AboutView: View {
                         .keyboardType(.asciiCapable)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("AnySearch Key（可选）")
-                        .font(.system(size: 12))
-                        .foregroundColor(Theme.textTertiary)
-                    SecureField("留空即用匿名（限速更低）", text: $anySearchKeyDraft)
-                        .font(.system(size: 14))
-                        .foregroundColor(Theme.textPrimary)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.asciiCapable)
+                // 只显示当前搜索工具的 Key 字段（两个草稿都常驻 @State，切过去不丢）
+                if selectedSearchTool == .anySearch {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("AnySearch Key（可选）")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.textTertiary)
+                        SecureField("留空即用匿名（限速更低）", text: $anySearchKeyDraft)
+                            .font(.system(size: 14))
+                            .foregroundColor(Theme.textPrimary)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.asciiCapable)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Tavily Key")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.textTertiary)
+                        SecureField("Tavily 不支持匿名", text: $tavilyKeyDraft)
+                            .font(.system(size: 14))
+                            .foregroundColor(Theme.textPrimary)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.asciiCapable)
+                    }
                 }
 
                 Button(action: saveAPIKey) {
@@ -138,6 +168,7 @@ struct AboutView: View {
                 .disabled(
                     apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         && anySearchKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        && tavilyKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 )
 
                 Button {
@@ -160,11 +191,11 @@ struct AboutView: View {
                 Text("AI 对话")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("联网搜索与读取原文由 AnySearch 提供，两条协议都能用；AnySearch Key 留空即用匿名（限速更低）。")
+                    Text("联网搜索与读取原文由「搜索工具」里选的那家提供，两条协议都能用：AnySearch 的 Key 留空即用匿名（限速更低），Tavily 必须填 Key（不支持匿名）。")
                     Text("国内直连 api.anthropic.com 通常不通，接口地址可填兼容 Anthropic Messages 协议的中转地址。")
                     Text("「测试连接」只拉一次模型列表，不产生生成计费。")
                     Text("密钥存在系统钥匙串里，只保存在本机。")
-                    if secretFellBack {
+                    if secretFellBack || anySearchFellBack || tavilyFellBack {
                         Text("注意：这台设备上钥匙串不可用，密钥已改用应用内存储（仅本机、卸载即丢失）。")
                             .foregroundColor(Theme.breakout)
                     }
@@ -196,7 +227,7 @@ struct AboutView: View {
                     Label("清除本地缓存", systemImage: "trash")
                 }
             } footer: {
-                Text("清除后下次启动需要联网重新拉取榜单快照。收藏不受影响。")
+                Text("清除后下次启动需要联网重新拉取榜单快照。收藏与对话记录不受影响。")
             }
 
             Section {
@@ -211,6 +242,19 @@ struct AboutView: View {
                 Text("收藏")
             } footer: {
                 Text("收藏只保存在这台设备上，在详情页点右上角书签即可添加。清空后无法恢复。")
+            }
+
+            // 对话是用户数据（Application Support），清空同样要先问一句
+            Section {
+                Button(role: .destructive) {
+                    showClearChatHistory = true
+                } label: {
+                    Label("清除对话记录", systemImage: "bubble.left.and.bubble.right.slash")
+                }
+            } header: {
+                Text("对话记录")
+            } footer: {
+                Text("对话按新闻自动保存，按最后更新最多保留最近 50 条会话，超出淘汰最旧；「清除本地缓存」不影响对话记录。")
             }
 
             Section {
@@ -249,6 +293,10 @@ struct AboutView: View {
             Button("清空收藏", role: .destructive) { favorites.clear() }
             Button("取消", role: .cancel) { }
         }
+        .confirmationDialog("确定清除全部对话记录？", isPresented: $showClearChatHistory, titleVisibility: .visible) {
+            Button("清除对话记录", role: .destructive) { ChatHistoryStore.shared.clear() }
+            Button("取消", role: .cancel) { }
+        }
         .task { loadAPIKey() }
         // 切协议必须重读密钥草稿：否则会把 A 协议的 Key 存进 B 协议
         .onChange(of: aiChatProtocolRaw) { _ in
@@ -262,6 +310,10 @@ struct AboutView: View {
 
     private var selectedProtocol: AIChatProtocol {
         AIChatProtocol(rawValue: aiChatProtocolRaw) ?? .anthropicMessages
+    }
+
+    private var selectedSearchTool: AppSettings.SearchToolProvider {
+        AppSettings.SearchToolProvider(rawValue: searchToolRaw) ?? .anySearch
     }
 
     private var baseURLBinding: Binding<String> {
@@ -281,16 +333,21 @@ struct AboutView: View {
     private func loadAPIKey() {
         apiKeyDraft = AIChatSecretStore.shared.key(for: selectedProtocol)
         secretFellBack = AIChatSecretStore.shared.isUsingFallback(for: selectedProtocol)
+        // 两个搜索 Key 一起读：切换搜索工具时不重载，草稿才不会丢
         anySearchKeyDraft = AIChatSecretStore.shared.anySearchKey()
         anySearchFellBack = AIChatSecretStore.shared.isUsingAnySearchFallback()
+        tavilyKeyDraft = AIChatSecretStore.shared.tavilyKey()
+        tavilyFellBack = AIChatSecretStore.shared.isUsingTavilyFallback()
         apiKeySaved = false
     }
 
     private func saveAPIKey() {
         AIChatSecretStore.shared.setKey(apiKeyDraft, for: selectedProtocol)
         AIChatSecretStore.shared.setAnySearchKey(anySearchKeyDraft)
+        AIChatSecretStore.shared.setTavilyKey(tavilyKeyDraft)
         secretFellBack = AIChatSecretStore.shared.isUsingFallback(for: selectedProtocol)
         anySearchFellBack = AIChatSecretStore.shared.isUsingAnySearchFallback()
+        tavilyFellBack = AIChatSecretStore.shared.isUsingTavilyFallback()
         apiKeySaved = true
     }
 

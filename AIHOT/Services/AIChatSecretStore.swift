@@ -9,7 +9,8 @@ protocol AIChatSecretBackend {
     func delete(account: String)
 }
 
-/// API Key 的存放处。三份：两条对话协议各一份，AnySearch 一份（那份可选）。
+/// API Key 的存放处。四份：两条对话协议各一份，AnySearch 一份（那份可选、可匿名），
+/// Tavily 一份（**必填** —— Tavily 没有匿名模式，没 Key 就搜不了）。
 ///
 /// 默认走 Keychain（`Security` 框架，**不需要 entitlement**）。但侧载签名
 /// （AltStore + 免费 Apple ID）在个别配置下会让 Keychain 直接返回
@@ -63,11 +64,27 @@ final class AIChatSecretStore {
         usedFallback(account: Self.anySearchAccount)
     }
 
+    // MARK: - Tavily（必填：没有匿名模式）
+
+    func tavilyKey() -> String {
+        read(account: Self.tavilyAccount)
+    }
+
+    @discardableResult
+    func setTavilyKey(_ value: String) -> Bool {
+        write(value, account: Self.tavilyAccount)
+    }
+
+    func isUsingTavilyFallback() -> Bool {
+        usedFallback(account: Self.tavilyAccount)
+    }
+
     func clear() {
         for chatProtocol in AIChatProtocol.allCases {
             clearAccount(Self.account(for: chatProtocol))
         }
         clearAccount(Self.anySearchAccount)
+        clearAccount(Self.tavilyAccount)
     }
 
     // MARK: - 内部
@@ -110,6 +127,7 @@ final class AIChatSecretStore {
     }
 
     private static let anySearchAccount = "aihot.anysearch"
+    private static let tavilyAccount = "aihot.tavily"
 
     private static func account(for chatProtocol: AIChatProtocol) -> String {
         switch chatProtocol {

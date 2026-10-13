@@ -534,6 +534,68 @@ def anysearch_result_text(payload):
     return text
 
 
+def tavily_search_text(payload):
+    """与 TavilyAPI.searchText 对应（输入是已解析的 200 响应）。
+
+    results → 模型可读 Markdown：`### {序号}. {标题}\\n{URL}\\n\\n{摘要}`，
+    条目之间空行分隔；answer 非空时前置引用块。空结果抛错，绝不回空串。
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Tavily 返回了看不懂的内容")
+    results = payload.get("results") or []
+    sections = []
+    for item in results:
+        if not isinstance(item, dict):
+            raise ValueError("Tavily 返回了看不懂的内容")
+        title = (item.get("title") or "").strip()
+        url = (item.get("url") or "").strip()
+        content = (item.get("content") or "").strip()
+        if not title and not content:
+            continue  # 宁可少抽，不可抽错：空壳条目跳过
+        section = "### %d. %s" % (len(sections) + 1, title or url)
+        if title and url:
+            section += "\n" + url
+        if content:
+            section += "\n\n" + content
+        sections.append(section)
+    if not sections:
+        raise ValueError("Tavily 没有返回可用内容")
+    text = "\n\n".join(sections)
+    answer = (payload.get("answer") or "").strip()
+    if answer:
+        text = "> " + answer + "\n\n" + text
+    return text
+
+
+def tavily_extract_text(payload):
+    """与 TavilyAPI.extractText 对应。
+
+    **先查 failed_results**：HTTP 200 也可能带失败条目（Tavily 版的 isError 陷阱，
+    规则 13 的教训）——非空必抛，哪怕同时有成功结果。
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Tavily 返回了看不懂的内容")
+    failed = payload.get("failed_results") or []
+    if failed:
+        first = failed[0] if isinstance(failed[0], dict) else {}
+        reason = (first.get("error") or "").strip() or (first.get("message") or "").strip()
+        page = (first.get("url") or "").strip()
+        if not reason:
+            reason = page + " 提取失败" if page else "有页面没能提取"
+        raise ValueError("Tavily 提取失败：" + reason)
+    results = payload.get("results") or []
+    contents = []
+    for item in results:
+        if not isinstance(item, dict):
+            raise ValueError("Tavily 返回了看不懂的内容")
+        raw = (item.get("raw_content") or "").strip()
+        if raw:
+            contents.append(raw)
+    if not contents:
+        raise ValueError("Tavily 没有返回可用内容")
+    return "\n\n".join(contents)
+
+
 def normalize_base_url(raw):
     """与 AIChatConfig.normalizedBaseURL 对应：只去掉末尾斜杠，绝不自动补 /v1。"""
     text = raw.strip()
@@ -567,6 +629,24 @@ def chat_history(messages):
     所以「一轮什么都没产出」在这里表现为一对连续的 user 消息。
     """
     return [(role, text) for role, text in messages if text != ""]
+
+
+# 镜像 13：对话会话封顶（ChatHistoryStore.trim）
+
+# 与 ChatHistoryStore.maximumSessions 同步 —— Swift 改了这里也要改。
+MAXIMUM_SESSIONS = 50
+
+
+def trim_sessions(sessions, maximum=MAXIMUM_SESSIONS):
+    """与 ChatHistoryStore.trim 对应：只从数组头部（最久没动的）淘汰。
+
+    **绝不按 updatedAt 排序再截**：Swift 的 sort 不稳定，同一秒保存的两条会
+    每次漂移（同规则 8 / 收藏的理由）—— 数组顺序才是权威，upsert 已经把
+    最近保存的排到了末尾，所以 suffix 就是「保留最近的」。
+    """
+    if len(sessions) <= maximum:
+        return list(sessions)
+    return list(sessions[-maximum:])
 
 
 # 镜像 11：失败原因（AIChatModel.truncationNotice）
@@ -1299,6 +1379,63 @@ def run():
              "连接提前中断，回复可能不完整。",
              "有正文、只是收尾标记没来 → 保留原话")
 
+    print("")
+    print("== 镜像 12：Tavily 响应解析 ==")
+    # 两份夹具都是真抓的 200 响应；断言从抓到的字节推导（查询词、条数、trim 后长度）。
+    tavily_search = fixture_json("tavily-search.json")
+    check_eq(tavily_search.get("query"), "Karpathy 认知鸿沟", "夹具里的查询词")
+    check_eq(len(tavily_search.get("results") or []), 5, "抓到 5 条结果")
+    search_text = tavily_search_text(tavily_search)
+    check(search_text.startswith("### 1. Karpathy 主帖"), "第 1 条标题进 Markdown")
+    check("https://www.cnblogs.com/gyc567/p/19848269" in search_text, "条目里带 URL")
+    check("### 5. 75%人口未接触LLM" in search_text, "抓到的最后一条")
+    check(not search_text.startswith(">"), "answer 是 null，不该出现引用块")
+
+    # answer 非空时前置引用块（夹具里是 null，合成体钉格式）
+    check(tavily_search_text(
+        {"answer": "一句话结论", "results": [{"title": "T", "url": "https://e.com", "content": "C"}]}
+    ).startswith("> 一句话结论"), "answer 非空 → 引用块前置")
+
+    tavily_extract = fixture_json("tavily-extract.json")
+    check_eq(tavily_extract.get("failed_results"), [], "夹具里没有失败条目")
+    check_eq(len(tavily_extract.get("results") or []), 1, "extract 抓的是单个页面")
+    extract_text = tavily_extract_text(tavily_extract)
+    check(extract_text.startswith("[# karpathy](/)"), "raw_content 本身是 Markdown，原样交给模型")
+    # 夹具里 raw_content 是 11418 字、末尾带 3 个空白（…Strap in.\n\n ），
+    # strip 之后 11415 —— 与 Swift 测试里的 count 断言同一个数。
+    check_eq(len(extract_text), 11415, "trim 之后的长度（11418 会红，尾部有 3 个空白）")
+
+    # 非空 failed_results 必须抛（HTTP 200 也可能部分失败 —— Tavily 版的 isError 陷阱）
+    raises(lambda: tavily_extract_text(
+        {"results": [{"url": "https://ok.com", "raw_content": "正文"}],
+         "failed_results": [{"url": "https://bad.com", "error": "fetch failed"}]}),
+        "failed_results 非空要抛错并带原话（连同成功结果一起也抛）", "fetch failed")
+    raises(lambda: tavily_extract_text(
+        {"results": [], "failed_results": [{"url": "https://bad.com"}]}),
+        "认不出原因也要点名页面", "bad.com")
+
+    raises(lambda: tavily_search_text({"query": "x", "results": [], "answer": None}),
+           "零结果要抛错，而不是回空串", "没有返回可用内容")
+    raises(lambda: tavily_extract_text({"results": [], "failed_results": []}),
+           "extract 零结果同样抛错")
+    raises(lambda: tavily_search_text("not json"), "非对象（解码失败）要抛错")
+    raises(lambda: tavily_extract_text("not json"), "extract 同样")
+
+    print("")
+    print("== 镜像 13：对话会话封顶（ChatHistoryStore.trim）==")
+    # 55 条合成数据 → 恰好留 50，淘汰最旧的 5 条。
+    # 方向钉死：误淘汰最新会**静默丢掉用户刚问完的对话**，而且没人会报错。
+    synth = [{"key": "key-%02d" % i, "updated_at": i} for i in range(55)]
+    trimmed = trim_sessions(synth)
+    check_eq(len(trimmed), 50, "封顶 50 条")
+    check_eq([s["key"] for s in trimmed],
+             ["key-%02d" % i for i in range(5, 55)],
+             "淘汰最旧的 5 条（数组头部），保留的顺序不变")
+    check_eq(trim_sessions(synth[:50]), synth[:50],
+             "恰好 50 条时原样返回，不重排")
+    check(trim_sessions([]) == [], "空的照样是空的")
+
+    print("")
     print("镜像测试：通过 %d 项" % _passed)
     if _failed:
         print("")

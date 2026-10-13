@@ -11,8 +11,18 @@ struct AIChatView: View {
     let story: Story?
     let prefetchedDigest: String?
 
-    @StateObject private var model = AIChatModel()
+    @StateObject private var model: AIChatModel
     @Environment(\.dismiss) private var dismiss
+
+    /// sessionKey 用 `item.id`（HotTopic 的 id，非可选）：同一条新闻的对话存在
+    /// 同一个 key 下，杀掉 App 重开还在。autoclosure 捕获的是 **init 参数** `item`，
+    /// 不引用 self，没有「初始化前用 self」的问题；首次渲染前就恢复完毕，无空屏闪烁。
+    init(item: HotTopic, story: Story?, prefetchedDigest: String?) {
+        self.item = item
+        self.story = story
+        self.prefetchedDigest = prefetchedDigest
+        _model = StateObject(wrappedValue: AIChatModel(sessionKey: item.id))
+    }
 
     private static let suggestions = ["这条为什么火？", "用三句话讲清楚", "还有后续吗？"]
     /// 底部哨兵：滚到它比滚到「最后一条消息」稳 —— 那条消息还在长高的时候 scrollTo 会跳。

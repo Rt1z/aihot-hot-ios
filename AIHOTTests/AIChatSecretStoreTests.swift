@@ -100,6 +100,7 @@ final class AIChatSecretStoreTests: XCTestCase {
         XCTAssertEqual(store.key(for: .anthropicMessages), "sk-trim", "粘贴密钥时最容易带上换行")
     }
 
+    /// clear() 必须把**四份**密钥全清掉：两条协议 + AnySearch + Tavily。
     func testClearRemovesEverything() {
         let (name, defaults) = makeSuite()
         defer { defaults.removePersistentDomain(forName: name) }
@@ -108,10 +109,40 @@ final class AIChatSecretStoreTests: XCTestCase {
         let store = AIChatSecretStore(backend: backend, defaults: defaults)
         store.setKey("a", for: .anthropicMessages)
         store.setKey("b", for: .openAICompatible)
+        store.setAnySearchKey("c")
+        store.setTavilyKey("d")
 
         store.clear()
         XCTAssertEqual(store.key(for: .anthropicMessages), "")
         XCTAssertEqual(store.key(for: .openAICompatible), "")
+        XCTAssertEqual(store.anySearchKey(), "")
+        XCTAssertEqual(store.tavilyKey(), "")
+        XCTAssertTrue(backend.storage.isEmpty)
+    }
+
+    /// Tavily 的 Key 是独立的一份，且**必填**（没有匿名模式）——
+    /// 与 AnySearch 那份互不相干，也不随协议切换串味。
+    func testTavilyKeyIsSeparateAndRequired() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+
+        store.setKey("sk-llm", for: .anthropicMessages)
+        store.setAnySearchKey("as-search")
+        store.setTavilyKey("tvly-key")
+
+        XCTAssertEqual(store.tavilyKey(), "tvly-key")
+        XCTAssertEqual(store.anySearchKey(), "as-search")
+        XCTAssertEqual(store.key(for: .anthropicMessages), "sk-llm", "三份互不相干")
+        XCTAssertFalse(store.isUsingTavilyFallback())
+
+        store.setTavilyKey("")
+        XCTAssertEqual(store.tavilyKey(), "", "清空就是「没填」，让工具直接回错而不是发一个会 401 的请求")
+
+        store.clear()
+        XCTAssertEqual(store.tavilyKey(), "")
         XCTAssertTrue(backend.storage.isEmpty)
     }
 

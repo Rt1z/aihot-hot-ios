@@ -294,4 +294,55 @@ final class AIChatModelTests: XCTestCase {
 
         XCTAssertEqual(notice, "连接提前中断，回复可能不完整。")
     }
+
+    // MARK: - 按新闻落盘
+
+    private func freshChatDirectory() throws -> (directory: URL, fileURL: URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("aihot.tests.chatmodel.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return (directory, directory.appendingPathComponent("chat-sessions.json"))
+    }
+
+    /// 构造时恢复盘上的历史：`messages` 与发给模型的 `history` 都要出现旧轮 ——
+    /// 这正是「杀掉 App 重开，接着问还能接上文」的那条链路。
+    @MainActor
+    func testRestoredSessionAppearsInMessagesAndHistory() throws {
+        let (directory, fileURL) = try freshChatDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let seeded = [message(.user, "旧问题"), message(.assistant, "旧回答")]
+        ChatHistoryStore(fileURL: fileURL).save(messages: seeded, key: "story-a")
+
+        let model = AIChatModel(
+            sessionKey: "story-a",
+            historyStore: ChatHistoryStore(fileURL: fileURL)
+        )
+        XCTAssertEqual(model.messages, seeded, "id 都要原样回来，恢复的不是新造的气泡")
+        XCTAssertEqual(
+            AIChatModel.history(from: model.messages),
+            [
+                AIChatTurn(role: .user, text: "旧问题"),
+                AIChatTurn(role: .assistant, text: "旧回答"),
+            ],
+            "恢复的对话要接着出现在下一轮请求的历史里"
+        )
+    }
+
+    /// 垃圾桶不只清界面：盘上的会话也要删，否则重开对话又回来了。
+    @MainActor
+    func testResetDeletesThePersistedSession() throws {
+        let (directory, fileURL) = try freshChatDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = ChatHistoryStore(fileURL: fileURL)
+        store.save(messages: [message(.user, "旧问题")], key: "story-a")
+
+        let model = AIChatModel(sessionKey: "story-a", historyStore: store)
+        XCTAssertEqual(model.messages.count, 1, "先确认恢复成功")
+
+        model.reset()
+        XCTAssertTrue(model.messages.isEmpty)
+        XCTAssertNil(store.load(key: "story-a"), "清空 = 连盘一起删")
+    }
 }
