@@ -120,6 +120,9 @@ final class AIChatRequestBuilderTests: XCTestCase {
         let first = try XCTUnwrap(messages[0]["content"] as? String)
         XCTAssertTrue(first.hasPrefix("CTX"))
         XCTAssertTrue(first.hasSuffix("为什么火？"))
+        // 资料**只能出现一次**：后面的 user 轮原样不动。
+        XCTAssertEqual(messages[1]["content"] as? String, "因为被多人转引。")
+        XCTAssertEqual(messages[2]["content"] as? String, "还有后续吗？")
     }
 
     func testAnthropicToolRoundIsEchoedWithMatchingIDs() throws {
@@ -194,6 +197,40 @@ final class AIChatRequestBuilderTests: XCTestCase {
         XCTAssertEqual(messages.first?["role"] as? String, "system")
         XCTAssertEqual(messages.first?["content"] as? String, "SYS")
         XCTAssertEqual(messages.count, 2)
+    }
+
+    /// OpenAI 兼容侧的多轮：这条协议的历史形状与 Anthropic 是**分开写的**，
+    /// 只钉住 Anthropic 那边不算数。system 之后必须是「问 / 答 / 问」三条，
+    /// 资料只并进第一条 user，其余原样。
+    func testOpenAICompatibleHistoryCarriesAssistantTurnsAndContextInFirstUserTurn() throws {
+        let turns = [
+            AIChatTurn(role: .user, text: "为什么火？"),
+            AIChatTurn(role: .assistant, text: "因为被多人转引。"),
+            AIChatTurn(role: .user, text: "还有后续吗？"),
+        ]
+        let data = try XCTUnwrap(
+            AIChatRequestBuilder.openAICompatibleBody(
+                config: try config(.openAICompatible), system: "SYS", newsContext: "CTX", turns: turns
+            )
+        )
+        let messages = try XCTUnwrap(try json(data)["messages"] as? [[String: Any]])
+
+        XCTAssertEqual(messages.count, 4, "system + 三轮历史")
+        XCTAssertEqual(messages[0]["role"] as? String, "system")
+        XCTAssertEqual(messages[1]["role"] as? String, "user")
+        XCTAssertEqual(messages[2]["role"] as? String, "assistant")
+        XCTAssertEqual(messages[3]["role"] as? String, "user")
+
+        let first = try XCTUnwrap(messages[1]["content"] as? String)
+        XCTAssertTrue(first.hasPrefix("CTX"))
+        XCTAssertTrue(first.hasSuffix("为什么火？"))
+        // 资料只能出现一次，而且历史轮不许被夹带成工具块（跨轮只回文本）。
+        XCTAssertEqual(messages[2]["content"] as? String, "因为被多人转引。")
+        XCTAssertEqual(messages[3]["content"] as? String, "还有后续吗？")
+        for message in messages.dropFirst() {
+            XCTAssertEqual(message.keys.sorted(), ["content", "role"])
+            XCTAssertNotNil(message["content"] as? String)
+        }
     }
 
     func testOpenAIToolRoundUsesToolRoleAndRawArguments() throws {

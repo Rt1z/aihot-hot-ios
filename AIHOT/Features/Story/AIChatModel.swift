@@ -75,7 +75,7 @@ final class AIChatModel: ObservableObject {
         pendingText = ""
 
         messages.append(AIChatMessage(role: .user, text: question))
-        let history = turnsForRequest()
+        let history = Self.history(from: messages)
         messages.append(AIChatMessage(role: .assistant, text: "", isStreaming: true))
         isStreaming = true
         bumpScroll()
@@ -349,7 +349,19 @@ final class AIChatModel: ObservableObject {
         scrollTick &+= 1
     }
 
-    private func turnsForRequest() -> [AIChatTurn] {
+    /// 攒出这次提问要带的历史 —— **多轮会话的全部状态就在这里**。
+    ///
+    /// 逐条原样带走（角色 + 文本），所以上一轮的问和答必然出现在下一轮的请求里；
+    /// 只把**一个字都没有**的消息滤掉。
+    ///
+    /// 收尾那道闸不在这里：`finishStreaming()` 本来就会把没出字的空气泡删掉
+    /// （「别留个空气泡」）。所以一轮什么都没产出时，留下的其实是**一对连续的
+    /// user 消息** —— 两条都要留着，按角色去重会把用户自己那句话也丢掉。
+    /// 这里过滤空文本是第二道闸，钉住本函数自己的契约。
+    ///
+    /// 做成 `static` 且接收数组，是为了让单测能直接喂一份自己造的历史 ——
+    /// `messages` 是 `private(set)`，用例没法自己摆状态（见 `AIChatModelTests`）。
+    static func history(from messages: [AIChatMessage]) -> [AIChatTurn] {
         messages.compactMap { message in
             guard !message.text.isEmpty else { return nil }
             return AIChatTurn(role: message.role, text: message.text)

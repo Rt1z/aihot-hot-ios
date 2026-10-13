@@ -75,6 +75,7 @@ AIChatView (sheet) ──> AIChatModel (@MainActor: owns the bytes.lines loop,
 
 pure & tested:  SSEParser (frames + both decoders) · AIChatTool (call accumulator)
                 AIChatNewsContext (prompt material) · AIChatConfig/AIChatRequestBuilder
+                AIChatModel.history (跨轮历史：空消息剔除 + 纯追加)
 ```
 
 ### Rules that will bite you if you don't know them
@@ -141,7 +142,7 @@ The old test used a **hand-written** `{"error":{"message":"Invalid API key"}}` p
 - API model fields stay `Optional` liberally (`Source.name`, etc.) so one malformed item can't blank the whole list on decode.
 - `RegexUtil` exists so no regex library gets added; prefer it over pulling in a dependency.
 - There is no networking in tests, and no fixtures are ever written back — the whole test suite is pure/offline.
-- The mirror in `tools/logic_tests.py` also covers the SSE frame reader and both protocol decoders (against `AIHOTTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read), the tool-call accumulator, the AnySearch response parsing (against `anysearch-search.json`), the AI base-URL normalisation, the news-context builder, and the 报道节奏 bucketing (镜像 9, against `story-timeline.json`). That is the only pre-CI signal for the trickiest logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (Python can't build them), the tool round-trip shapes, and the secret store (a fake backend).
+- The mirror in `tools/logic_tests.py` also covers the SSE frame reader and both protocol decoders (against `AIHOTTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read), the tool-call accumulator, the AnySearch response parsing (against `anysearch-search.json`), the AI base-URL normalisation, the news-context builder, the 报道节奏 bucketing (镜像 9, against `story-timeline.json`), and the cross-turn history filter (镜像 10, `AIChatModel.history`). That is the only pre-CI signal for the trickiest logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (Python can't build them), the tool round-trip shapes, and the secret store (a fake backend).
 - Secrets never go in `@AppStorage`/`@AppStorage`-like paths: the API key lives in the Keychain (`AIChatSecretStore`), with a deliberate UserDefaults fallback **that the UI must disclose**. Two error codes to keep apart: `errSecItemNotFound (-25300)` means "nothing saved yet" (never a failure, and treating it as one writes an empty value on first launch), while something like `errSecMissingEntitlement (-34018)` is a real failure and triggers the fallback.
 
 ### Attribution constraints (product, not just legal)

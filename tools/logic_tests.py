@@ -501,6 +501,16 @@ def contextual_turns(turns, news_context):
     return list(turns)
 
 
+def chat_history(messages):
+    """与 AIChatModel.history(from:) 对应：逐条带走，只滤掉一个字都没有的。
+
+    它错了不会崩，只会让模型失忆 —— 或者反过来，把用户自己那句话丢掉。
+    注意收尾那道闸在 Swift 的 finishStreaming() 里（它会把空气泡删掉），
+    所以「一轮什么都没产出」在这里表现为一对连续的 user 消息。
+    """
+    return [(role, text) for role, text in messages if text != ""]
+
+
 def ai_news_context(item, story, prefetched_digest=None, limit=6000, max_reports=8):
     """与 AIChatNewsContext.make 对应。只断言关键性质，不追求逐字节一致。"""
     story = story or {}
@@ -1047,6 +1057,29 @@ def run():
         check_eq(daily["peak"]["label"], "1月1日", "并列取最早")
         check_eq(daily["last_24_hour_count"], 1, "只有最后一条在最新一条之后 24 小时内")
         check_eq(daily["axis_labels"], ["1月1日", "1月2日", "1月3日", "1月4日"], "不足 5 个刻度就全显示")
+
+    print("")
+    print("== 镜像 10：跨轮历史（AIChatModel.history）==")
+    check_eq(chat_history([]), [], "还没说话时历史是空的")
+    check_eq(chat_history([("user", "为什么火？")]), [("user", "为什么火？")],
+             "第一轮就带这一句问题")
+    check_eq(chat_history([("user", "为什么火？"), ("assistant", "被多人转引。"), ("user", "还有后续吗？")]),
+             [("user", "为什么火？"), ("assistant", "被多人转引。"), ("user", "还有后续吗？")],
+             "第二问带上了第一问和第一答，顺序与角色都不变")
+    check_eq(chat_history([("user", "为什么火？"), ("assistant", ""), ("user", "再试一次")]),
+             [("user", "为什么火？"), ("user", "再试一次")],
+             "一个字都没有的消息要剔除，前后内容一条不少")
+    check_eq(chat_history([("user", "为什么火？"), ("user", "再试一次")]),
+             [("user", "为什么火？"), ("user", "再试一次")],
+             "一轮什么都没产出时是一对连续的 user 消息，两条都要留（按角色去重会丢掉用户的问题）")
+
+    # 纯追加：第 N 轮的历史必须以第 N-1 轮为前缀 —— 提示词缓存前缀能活过整场对话的前提。
+    history_first = chat_history([("user", "a")])
+    history_second = chat_history([("user", "a"), ("assistant", "b"), ("user", "c")])
+    history_third = chat_history(history_second + [("assistant", "d"), ("user", "e")])
+    check_eq(history_second[:len(history_first)], history_first, "第二轮的历史以第一轮为前缀")
+    check_eq(history_third[:len(history_second)], history_second, "第三轮的历史以第二轮为前缀")
+    check_eq(len(history_third), 5, "纯追加，长度正好是 5")
 
     print("镜像测试：通过 %d 项" % _passed)
     if _failed:
