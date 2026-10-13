@@ -270,15 +270,22 @@ final class SSEParserTests: XCTestCase {
         return result
     }
 
-    /// **量一下平台自己的切行器**（不是猜的）。
+    /// **量出来的平台事实**：Darwin 的 `AsyncLineSequence` 会**把空行整个丢掉**。
     ///
-    /// `AsyncStream<UInt8>.lines` 与 `URLSession.AsyncBytes.lines` 是同一个
-    /// `AsyncSequence where Element == UInt8` 扩展，所以这条能在没有网络、没有真机的情况下
-    /// 量出设备上的行为。量它是因为**空行是 SSE 分帧的唯一依据**：一旦被吞掉，
-    /// 整条流会被拼成一帧、每个事件都认不出来，真机上的表现就是「没有任何回复」。
+    /// 这条在 CI（iOS 模拟器）上实测：喂 `"data: a\n\ndata: b\n\n"`，它交出
+    /// `["data: a", "data: b"]` —— 两个空行都不见了。用 `AsyncStream<UInt8>` 就够了，
+    /// 因为 `.lines` 挂在 `AsyncSequence where Element == UInt8` 上，
+    /// `URLSession.AsyncBytes.lines` 走的是同一个实现。
     ///
-    /// 这条红了 = 平台确实会吞空行 = 必须用 `SSELineSplitter`（App 里已经是它了）。
-    func testPlatformLineSplitterKeepsBlankLines() async throws {
+    /// 而空行是 SSE 分帧的**唯一**依据（`SSEFrameReader` 见空行才交出一帧），
+    /// 所以用它读 SSE 的后果是固定的：整条流被拼成**一帧** → 拼起来的 JSON 解不出来 →
+    /// 每个事件都认不出来 → 真机上「一个字都没有」加一句看不懂的提示，而且**全部夹具用例照旧全绿**
+    /// （它们自己按 `\n` 切好行再喂，恰好绕开了这一段）。这就是 `SSELineSplitter` 存在的全部理由，
+    /// 也是 CLAUDE.md 规则 17 的由来。
+    ///
+    /// 哪天 Apple 改了它，这条会红 —— 那时可以重新考虑用回 `bytes.lines`，
+    /// 但别只看这条就换：`SSELineSplitter` 还有「逐字节可测」这个好处。
+    func testPlatformLineSplitterDropsBlankLinesWhichIsWhyWeDoNotUseIt() async throws {
         let stream = AsyncStream<UInt8> { continuation in
             for byte in Array("data: a\n\ndata: b\n\n".utf8) { continuation.yield(byte) }
             continuation.finish()
@@ -287,8 +294,8 @@ final class SSEParserTests: XCTestCase {
         for try await line in stream.lines { observed.append(line) }
 
         XCTAssertEqual(
-            observed, ["data: a", "", "data: b", ""],
-            "空行必须活着交出来：被吞掉就会被拼成一帧，解码器一个事件都认不出来"
+            observed, ["data: a", "data: b"],
+            "实测：平台会把空行整个丢掉（这正是不能用 bytes.lines 读 SSE 的原因）"
         )
     }
 
