@@ -58,7 +58,8 @@ struct MarkdownBlocksView: View {
 
     /// 段落/标题/引用的正文：行内格式（**加粗** / `代码` / [链接](…)）交给 Foundation。
     /// 解析失败退回纯文本 —— 永远不该因为一条回答里有半截不合法的行内标记就整段不显示。
-    private func inlineText(_ raw: String) -> Text {
+    /// 返回 `some View` 不是 `Text`：尾上的 .fixedSize / .textSelection 已经把它变成了 View。
+    private func inlineText(_ raw: String) -> some View {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )

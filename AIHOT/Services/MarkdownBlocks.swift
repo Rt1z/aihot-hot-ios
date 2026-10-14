@@ -55,7 +55,7 @@ enum MarkdownBlocks {
 
         func flushParagraph() {
             guard !paragraph.isEmpty else { return }
-            blocks.append(.paragraph(paragraph.joined("\n")))
+            blocks.append(.paragraph(paragraph.joined(separator: "\n")))
             paragraph.removeAll()
         }
         func flushList() {
@@ -65,7 +65,7 @@ enum MarkdownBlocks {
         }
         func flushQuote() {
             guard !quoteLines.isEmpty else { return }
-            blocks.append(.quote(quoteLines.joined("\n")))
+            blocks.append(.quote(quoteLines.joined(separator: "\n")))
             quoteLines.removeAll()
         }
         func flushAll() {
@@ -108,7 +108,7 @@ enum MarkdownBlocks {
                     index += 1
                 }
                 // 没有收尾围栏（回答被截断是常态）也不再往下找：到文末都是代码
-                let code = body.joined("\n").trimmingCharacters(in: .newlines)
+                let code = body.joined(separator: "\n").trimmingCharacters(in: .newlines)
                 blocks.append(.code(language: language, body: code))
                 continue
             }
