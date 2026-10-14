@@ -187,6 +187,9 @@
 - **每条回答都能单独复制**：每条 AI 回答的气泡右下角都有「复制」按钮，把**这一条**回答
   连同**新闻标题与原文链接**放进剪贴板 —— 粘到哪都带着出处；点完短暂显示「已复制」。
   复制的是那一条，多轮对话里想复制哪条就哪条（流式生成中不显示按钮，出完才有）。
+- **回答按 Markdown 排版**：标题、列表、代码块（等宽字体 + 语言标签）、引用、分隔线、
+  表格都会正常渲染，行内的**加粗** / `代码` / 链接照旧；流式生成中就开始排版，
+  代码块是逐行长出来的。复制按钮拿的是 Markdown 原文，粘出去格式不丢。
 - **费用**：模型那边按你所用服务商计费；搜索工具每搜一次、每读一个网页也算一次调用
   （AnySearch 匿名有免费额度；Tavily / SerpAPI / Exa / Serper 按你自己账号的额度计）。
   所以模型在一轮里连搜三次，就是三次搜索的量。
@@ -224,12 +227,14 @@ AIHOT/
                             SearchToolChain（五家按用户顺序回退 + 单家 runner 工厂）、
                             SerpAPI / ExaAPI / SerperAPI（另外三家）、
                             ChatHistoryStore（对话按新闻落盘，Application Support）、
-                            ChatAnswerCopy（复制回答的文本拼装：正文 + 标题 + 出处链接）
+                            ChatAnswerCopy（复制回答的文本拼装：正文 + 标题 + 出处链接）、
+                            MarkdownBlocks（回答的 Markdown 分块，纯函数 + Python 镜像）
   Features/Common/          SafariView（SFSafariViewController，可选阅读器模式 + WebLinkSheet）
   Features/Hot/             榜单页、大卡、紧凑行、RelativeTime
   Features/Favorites/       收藏列表、收藏行
   Features/Story/           详情页（AI 摘要 + 报道节奏图 + 时间线 + 收藏书签 + 对话弹窗）、
-                            ReportTimelineChart（Swift Charts 柱状图）
+                            ReportTimelineChart（Swift Charts 柱状图）、
+                            MarkdownBlocksView（回答的 Markdown 分块渲染）
   Features/About/           设置页（原「关于」：外观/AI 对话/数据/缓存/收藏/对话记录/排查/署名）
 AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解析/网页解析/报道节奏）
 AIHOTUITests/               UI 测试（设置页换序与开关持久化；用启动参数重置搜索设置）
@@ -320,3 +325,4 @@ AIHOTUITests/               UI 测试（设置页换序与开关持久化；用�
 - [ ] 问一轮 → 杀掉 App → 重开，同一条新闻的对话还在；换一条新闻是另一场对话（各存各的）
 - [ ] 弹窗垃圾桶只清当前这一条；「设置 → 对话记录 → 清除对话记录」确认后全部清空；「清除本地缓存」之后对话与收藏都还在
 - [ ] 每条 AI 回答气泡右下角有「复制」按钮，粘贴出来是「那条回答 + ——《新闻标题》 + 原文链接」，点完短暂显示「已复制」；用户消息和流式生成中的气泡没有按钮
+- [ ] 问一个会输出代码块 / 列表 / 表格的问题：回答按块排版（不是原样 `#`、```），代码块等宽字体带语言标签，流式生成中就逐块长出来；复制出的仍是 Markdown 原文

@@ -64,4 +64,15 @@ enum Typography {
     static let meta = Font.system(size: 12)
     static let heat = Font.system(size: 24, weight: .bold, design: .rounded)
     static let heatSmall = Font.system(size: 16, weight: .bold, design: .rounded)
+    /// 回答里的 Markdown 标题（body 是 14）：h1/h2 大一号，h3 起只加粗不再放大
+    static func markdownHeading(_ level: Int) -> Font {
+        switch level {
+        case 1: return .system(size: 20, weight: .bold)
+        case 2: return .system(size: 17, weight: .semibold)
+        case 3: return .system(size: 15, weight: .semibold)
+        default: return .system(size: 14, weight: .semibold)
+        }
+    }
+    /// 回答里代码块的等宽字体
+    static let markdownCode = Font.system(size: 13, design: .monospaced)
 }

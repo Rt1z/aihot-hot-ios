@@ -1150,6 +1150,182 @@ def normalize_disabled(stored):
 
 
 # --------------------------------------------------------------------------
+# 镜像 16：回答的 Markdown 分块（MarkdownBlocks.parse）
+# --------------------------------------------------------------------------
+# 与 Swift `MarkdownBlocks` 对应（规则 4：Swift 是权威，取舍清单在 Swift 文件头）。
+# 同一份夹具 `chat-markdown.md` 两边都读。块用 dict 表示，键名与断言一一对应。
+
+MD_LIST_ITEM_RE = re.compile(r"^([ \t]*)([-*+]|\d{1,9}[.)])[ \t]+(.*)$")
+MD_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+[ \t]*)?$")
+MD_RULE_RE = re.compile(r"^(-{3,}|\*{3,}|_{3,})$")
+MD_QUOTE_RE = re.compile(r"^ {0,3}>(.*)$")
+
+
+def _md_is_table_separator(line):
+    trimmed = line.strip()
+    if "|" not in trimmed or "-" not in trimmed:
+        return False
+    stripped = trimmed.replace("|", "").replace(":", "")
+    return bool(stripped) and all(ch in " \t-" for ch in stripped)
+
+
+def _md_table_cells(line):
+    body = line
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    return [cell.strip() for cell in body.split("|")]
+
+
+def markdown_blocks(text):
+    """与 Swift `MarkdownBlocks.parse` 对应。"""
+    lines = [raw[:-1] if raw.endswith("\r") else raw for raw in text.split("\n")]
+
+    blocks = []
+    paragraph = []
+    items = []
+    quote_lines = []
+
+    def flush_paragraph():
+        if paragraph:
+            blocks.append({"type": "paragraph", "text": "\n".join(paragraph)})
+            paragraph.clear()
+
+    def flush_list():
+        if items:
+            blocks.append({"type": "list", "items": list(items)})
+            items.clear()
+
+    def flush_quote():
+        if quote_lines:
+            blocks.append({"type": "quote", "text": "\n".join(quote_lines)})
+            quote_lines.clear()
+
+    def flush_all():
+        flush_paragraph()
+        flush_list()
+        flush_quote()
+
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        trimmed = line.strip()
+
+        if not trimmed:
+            flush_all()
+            index += 1
+            continue
+
+        # 1) 围栏代码块
+        if trimmed.startswith("```"):
+            flush_all()
+            info = trimmed[3:].strip()
+            parts = [part for part in re.split(r"[ \t]+", info) if part]
+            language = parts[0] if parts else ""
+            body = []
+            index += 1
+            while index < len(lines):
+                inner = lines[index].strip()
+                if inner.startswith("```") and all(ch in " \t" for ch in inner[3:]):
+                    index += 1
+                    break
+                body.append(lines[index])
+                index += 1
+            code = "\n".join(body).strip("\n")
+            blocks.append({"type": "code", "language": language, "body": code})
+            continue
+
+        # 2) ATX 标题
+        match = MD_HEADING_RE.match(line)
+        if match:
+            flush_all()
+            blocks.append({
+                "type": "heading",
+                "level": len(match.group(1)),
+                "text": match.group(2),
+            })
+            index += 1
+            continue
+
+        # 3) 分隔线
+        if MD_RULE_RE.match(trimmed):
+            flush_all()
+            blocks.append({"type": "rule"})
+            index += 1
+            continue
+
+        # 4) 引用
+        match = MD_QUOTE_RE.match(line)
+        if match:
+            flush_paragraph()
+            flush_list()
+            content = match.group(1)
+            if content.startswith(" "):
+                content = content[1:]
+            quote_lines.append(content)
+            index += 1
+            continue
+        flush_quote()
+
+        # 5) 表格：表头以 | 开头，且下一行是分隔行
+        if (trimmed.startswith("|")
+                and index + 1 < len(lines)
+                and _md_is_table_separator(lines[index + 1])):
+            flush_all()
+            header = _md_table_cells(trimmed)
+            index += 2
+            rows = []
+            while index < len(lines) and "|" in lines[index]:
+                rows.append(_md_table_cells(lines[index].strip()))
+                index += 1
+            width = len(header)
+            normalized = []
+            for row in rows:
+                if len(row) >= width:
+                    normalized.append(row[:width])
+                else:
+                    normalized.append(row + [""] * (width - len(row)))
+            blocks.append({"type": "table", "header": header, "rows": normalized})
+            continue
+
+        # 6) 列表项（有序号连排时重编：源码「1. 1. 1.」→ 1、2、3）
+        match = MD_LIST_ITEM_RE.match(line)
+        if match:
+            flush_paragraph()
+            indent, marker, item_text = match.group(1), match.group(2), match.group(3)
+            level = min(sum(4 if ch == "\t" else 1 for ch in indent) // 2, 3)
+            number = int(marker[:-1]) if marker[0].isdigit() else None
+            if number is not None and items and items[-1]["number"] is not None:
+                number = items[-1]["number"] + 1
+            items.append({"level": level, "number": number, "text": item_text})
+            index += 1
+            continue
+
+        # 7) 列表续行：列表开着 + 有缩进 → 并进最后一项（只吃缩进行）
+        if items and (line.startswith(" ") or line.startswith("\t")):
+            flush_paragraph()
+            previous = items.pop()
+            items.append({
+                "level": previous["level"],
+                "number": previous["number"],
+                "text": previous["text"] + "\n" + line,
+            })
+            index += 1
+            continue
+
+        # 8) 顶格新行断开列表
+        flush_list()
+
+        # 9) 段落
+        paragraph.append(line)
+        index += 1
+
+    flush_all()
+    return blocks
+
+
+# --------------------------------------------------------------------------
 # 断言（全部以夹具为准）
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
@@ -1820,6 +1996,54 @@ def run():
              [], "全停用 → 一个可试的家都没有（走「没有可用的搜索工具」）")
     check_eq(eligible_providers(["serpapi", "serper"], set(), full_keys, "read_url"),
              [], "只剩只搜索的家时 read_url 无解（走「没有能读网页的工具」）")
+
+    print("")
+    print("== 镜像 16：回答的 Markdown 分块（MarkdownBlocks.parse）==")
+    md = fixture_text("chat-markdown.md")
+    blocks = markdown_blocks(md)
+    check_eq(len(blocks), 9, "夹具切出 9 块")
+    check_eq(blocks[0], {"type": "heading", "level": 2, "text": "这条为什么火"}, "H2 标题")
+    check_eq(blocks[1],
+             {"type": "paragraph", "text": "先看**三个信号**，再看 `热度指数` 的变化："},
+             "段落：行内标记原样保留")
+    list_one = blocks[2]
+    check_eq(list_one["type"], "list", "无序列表块")
+    check_eq(len(list_one["items"]), 4, "四个列表项（含一个嵌套）")
+    check_eq([item["level"] for item in list_one["items"]], [0, 0, 1, 0], "嵌套项缩进层级")
+    check(all(item["number"] is None for item in list_one["items"]), "无序项没有序号")
+    check_eq(list_one["items"][0]["text"], "厂商放出了[实测数据](https://example.com/demo)",
+             "行内链接原样保留")
+    list_two = blocks[3]
+    check_eq([item["number"] for item in list_two["items"]], [1, 2, 3],
+             "三个「1.」连排重编成 1、2、3")
+    code = blocks[4]
+    check_eq(code["language"], "python", "代码块语言")
+    check_eq(code["body"],
+             "def heat(rank):\n    # 没有热度指数时退回参与者数\n    return rank or 0",
+             "代码块正文逐行保留（含缩进与注释行）")
+    check_eq(blocks[5],
+             {"type": "quote", "text": "引用一段：热度按 60 秒缓存，**不重复请求**。"},
+             "引用剥掉 >")
+    check_eq(blocks[6], {"type": "rule"}, "分隔线")
+    check_eq(blocks[7]["header"], ["来源", "参与者", "走向"], "表头三列")
+    check_eq(len(blocks[7]["rows"]), 2, "表格两行数据")
+    check_eq(blocks[7]["rows"][0], ["官方博客", "12", "↑"], "第一行数据")
+    check_eq(blocks[8],
+             {"type": "paragraph", "text": "结论：**别只看名次**，报道节奏更诚实。"},
+             "收尾段落")
+
+    # 边界（字面输入，期望即字面推导）
+    check_eq(markdown_blocks("```swift\nlet a = 1"),
+             [{"type": "code", "language": "swift", "body": "let a = 1"}],
+             "没闭合的围栏算到文末（回答被截断时不吞正文）")
+    check_eq(markdown_blocks("#标题"), [{"type": "paragraph", "text": "#标题"}],
+             "# 后没空格不是标题")
+    check_eq(markdown_blocks("> 甲\n>\n> 乙"),
+             [{"type": "quote", "text": "甲\n\n乙"}], "连续引用合并、空引用行保留")
+    check_eq(markdown_blocks("a | b\n---"),
+             [{"type": "paragraph", "text": "a | b"}, {"type": "rule"}],
+             "没有前导 | 的「a | b」+「---」不是表格")
+    check_eq(markdown_blocks(""), [], "空文没有块")
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)

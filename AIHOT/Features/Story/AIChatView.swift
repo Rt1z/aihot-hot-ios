@@ -161,8 +161,14 @@ struct AIChatView: View {
                         Text("…")
                             .font(Typography.body)
                             .foregroundColor(Theme.textTertiary)
+                    } else if message.role == .assistant {
+                        // AI 回答按 Markdown 分块渲染（标题/列表/代码块/引用/表格）。
+                        // 流式中也走它 —— 出字是 70ms 一批不是逐字，且分块器
+                        // 没有半截语法的失败态；这样代码块是长出来的，不是结束时才换脸。
+                        MarkdownBlocksView(text: message.text)
                     } else {
-                        Text(rendered(message))
+                        // 用户消息不当 Markdown 解：输入框里打的 `*` 就是想显示 `*`
+                        Text(AttributedString(message.text))
                             .font(Typography.body)
                             .foregroundColor(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -218,19 +224,6 @@ struct AIChatView: View {
         .padding(.trailing, 4)
         .accessibilityLabel("复制这条回答")
         .accessibilityIdentifier("chat-copy-answer-\(message.id.uuidString)")
-    }
-
-    /// 流式过程中按纯文本渲染，一轮结束后才解析 Markdown ——
-    /// 每来一个字就解析一次 Markdown 太贵。
-    private func rendered(_ message: AIChatMessage) -> AttributedString {
-        guard message.role == .assistant, !message.isStreaming else {
-            return AttributedString(message.text)
-        }
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        return (try? AttributedString(markdown: message.text, options: options))
-            ?? AttributedString(message.text)
     }
 
     private func statusRow(_ text: String) -> some View {
