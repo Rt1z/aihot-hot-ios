@@ -14,8 +14,9 @@ struct AIChatView: View {
 
     @StateObject private var model: AIChatModel
     @Environment(\.dismiss) private var dismiss
-    /// 复制按钮的瞬时反馈（与「复制诊断信息」同款：点完图标短暂变成 ✓）。
-    @State private var copiedAnswer = false
+    /// 刚复制过的那条消息 id —— 每条回答自带复制键，✓ 反馈要落在点过的那条上
+    /// （与「复制诊断信息」同款的瞬时反馈，2 秒后还原）。
+    @State private var copiedMessageID: UUID?
 
     /// sessionKey 用 `item.id`（HotTopic 的 id，非可选）：同一条新闻的对话存在
     /// 同一个 key 下，杀掉 App 重开还在。autoclosure 捕获的是 **init 参数** `item`，
@@ -39,17 +40,6 @@ struct AIChatView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button("关闭") { dismiss() }
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        // 复制最近一条 AI 回答（正文 + 标题 + 出处链接，见 ChatAnswerCopy）
-                        Button {
-                            copyAnswer()
-                        } label: {
-                            Image(systemName: copiedAnswer ? "checkmark" : "doc.on.doc")
-                        }
-                        .disabled(lastAssistantAnswer == nil)
-                        .accessibilityLabel("复制回答")
-                        .accessibilityIdentifier("chat-copy-answer")
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
@@ -165,33 +155,69 @@ struct AIChatView: View {
         HStack(spacing: 0) {
             if message.role == .user { Spacer(minLength: 44) }
 
-            Group {
-                if message.text.isEmpty && message.isStreaming {
-                    Text("…")
-                        .font(Typography.body)
-                        .foregroundColor(Theme.textTertiary)
-                } else {
-                    Text(rendered(message))
-                        .font(Typography.body)
-                        .foregroundColor(Theme.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+            VStack(alignment: .trailing, spacing: 4) {
+                Group {
+                    if message.text.isEmpty && message.isStreaming {
+                        Text("…")
+                            .font(Typography.body)
+                            .foregroundColor(Theme.textTertiary)
+                    } else {
+                        Text(rendered(message))
+                            .font(Typography.body)
+                            .foregroundColor(Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
+                        .fill(message.role == .user ? Theme.surfaceElevated : Theme.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
+                        .stroke(Theme.border, lineWidth: 1)
+                )
+
+                // 每条 AI 回答自带复制键（不是顶栏一个键管最新一条）：
+                // 多轮对话里想复制哪条就哪条。用户消息、流式中、空文不上这个键。
+                if isCopyable(message) {
+                    copyButton(message)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
-                    .fill(message.role == .user ? Theme.surfaceElevated : Theme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Metrics.cardCorner, style: .continuous)
-                    .stroke(Theme.border, lineWidth: 1)
-            )
 
             if message.role == .assistant { Spacer(minLength: 44) }
         }
         .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
+    }
+
+    /// 这条消息能不能复制：只复制**已完成**的 AI 回答 ——
+    /// 流式中文字还在长（复制到半截是误导），用户消息不是「回答」。
+    private func isCopyable(_ message: AIChatMessage) -> Bool {
+        message.role == .assistant
+            && !message.isStreaming
+            && !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 单条回答的复制键：贴在气泡右下，点完 ✓ +「已复制」两秒还原
+    /// （只还原点过的那条 —— 连续复制两条时，先发的定时器不该抹掉后一条的 ✓）。
+    private func copyButton(_ message: AIChatMessage) -> some View {
+        let copied = copiedMessageID == message.id
+        return Button {
+            copyAnswer(message)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                Text(copied ? "已复制" : "复制")
+            }
+            .font(.system(size: 12))
+            .foregroundColor(copied ? Theme.accent : Theme.textTertiary)
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 4)
+        .accessibilityLabel("复制这条回答")
+        .accessibilityIdentifier("chat-copy-answer-\(message.id.uuidString)")
     }
 
     /// 流式过程中按纯文本渲染，一轮结束后才解析 Markdown ——
@@ -262,22 +288,19 @@ struct AIChatView: View {
         model.send(item: item, story: story, prefetchedDigest: prefetchedDigest)
     }
 
-    /// 最近一条非空的 AI 回复 —— 复制按钮复制的就是它（多轮对话里最新那句回答）。
-    private var lastAssistantAnswer: String? {
-        model.messages
-            .last { $0.role == .assistant && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?
-            .text
-    }
-
-    private func copyAnswer() {
-        guard let answer = lastAssistantAnswer else { return }
+    /// 复制这一条回答（正文 + 标题 + 出处链接，见 ChatAnswerCopy ——
+    /// 落到哪都认得出出自哪条新闻）。isCopyable 已挡掉空文/流式/用户消息。
+    private func copyAnswer(_ message: AIChatMessage) {
         // 原文链接优先；只有 aihot 页链接的条目退回它，标题始终有
         let link = item.links?.original ?? item.links?.aihot
-        UIPasteboard.general.string = ChatAnswerCopy.text(answer: answer, title: item.title, link: link)
-        copiedAnswer = true
+        UIPasteboard.general.string = ChatAnswerCopy.text(answer: message.text, title: item.title, link: link)
+        copiedMessageID = message.id
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            copiedAnswer = false
+            // 只还原自己那条：两秒内又复制了别的，旧定时器别把新的 ✓ 抹掉
+            if copiedMessageID == message.id {
+                copiedMessageID = nil
+            }
         }
     }
 }
