@@ -71,8 +71,17 @@ final class SearchToolSettingsUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.2)
         }
         XCTFail(
-            "等了 \(timeout)s，开关没变成 \(expected ? "开" : "关")：\(toggle)；当前 value=\(String(describing: toggle.value))"
+            "等了 \(timeout)s，开关没变成 \(expected ? "开" : "关")：\(toggle)；"
+                + "当前 value=\(String(describing: toggle.value)) frame=\(toggle.frame) hittable=\(toggle.isHittable)"
         )
+    }
+
+    /// 点开关。`element.tap()` 点的是 AX 元素的几何中心，而 SwiftUI Toggle 在 Form 里的
+    /// AX 框可能比真实控件大（含标签甚至整行），中心可能落在空处 —— 第四轮 CI：
+    /// 5 秒轮询 value 恒为 1，tap 压根没激活开关。改点框左侧 20%：窄框（只有开关）
+    /// 落在开关上，宽框落在标签上 —— SwiftUI Toggle 的标签区同样是触发区。
+    private func tapToggle(_ toggle: XCUIElement) {
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
     }
 
     /// 中间行 ↑：SerpAPI 与上面的 Tavily 换位；重开后顺序还在。
@@ -113,7 +122,7 @@ final class SearchToolSettingsUITests: XCTestCase {
         reveal(exa)
         XCTAssertTrue(isOn(exa), "重置后 Exa 应该是开着的")
 
-        exa.tap()
+        tapToggle(exa)
         waitFor(exa, toBeOn: false)
 
         app.terminate()
