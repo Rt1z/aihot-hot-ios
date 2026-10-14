@@ -167,6 +167,7 @@ struct StoryDetailView: View {
                     showChat = true
                 } label: {
                     Image(systemName: "bubble.left.and.bubble.right")
+                        .font(Typography.toolbarIcon)
                         .foregroundColor(Theme.accent)
                 }
                 .accessibilityLabel("AI 对话")
@@ -176,6 +177,7 @@ struct StoryDetailView: View {
                     favorites.toggle(item)
                 } label: {
                     Image(systemName: isFavorited ? "bookmark.fill" : "bookmark")
+                        .font(Typography.toolbarIcon)
                         .foregroundColor(isFavorited ? Theme.accent : Theme.textSecondary)
                 }
                 .accessibilityLabel(isFavorited ? "取消收藏" : "收藏")

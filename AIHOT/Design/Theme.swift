@@ -75,4 +75,7 @@ enum Typography {
     }
     /// 回答里代码块的等宽字体
     static let markdownCode = Font.system(size: 13, design: .monospaced)
+    /// 顶栏图标（详情页「对话/收藏」、对话弹窗「清空」）：不设字号时 toolbar 按
+    /// 正文 17pt 渲染 SF Symbol，这里取其 4/5 —— Symbol 随字号线性缩放，高宽同比缩小
+    static let toolbarIcon = Font.system(size: 13.6)
 }

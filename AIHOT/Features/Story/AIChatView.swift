@@ -46,6 +46,7 @@ struct AIChatView: View {
                             model.reset()
                         } label: {
                             Image(systemName: "trash")
+                                .font(Typography.toolbarIcon)
                         }
                         .disabled(model.messages.isEmpty)
                         .accessibilityLabel("清空对话")
