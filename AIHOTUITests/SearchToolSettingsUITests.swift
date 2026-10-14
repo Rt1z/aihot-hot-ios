@@ -76,12 +76,13 @@ final class SearchToolSettingsUITests: XCTestCase {
         )
     }
 
-    /// 点开关。`element.tap()` 点的是 AX 元素的几何中心，而 SwiftUI Toggle 在 Form 里的
-    /// AX 框可能比真实控件大（含标签甚至整行），中心可能落在空处 —— 第四轮 CI：
-    /// 5 秒轮询 value 恒为 1，tap 压根没激活开关。改点框左侧 20%：窄框（只有开关）
-    /// 落在开关上，宽框落在标签上 —— SwiftUI Toggle 的标签区同样是触发区。
+    /// 点开关。CI 实测（第五轮，iPhone 16 模拟器）：「search-toggle-exa」的 AX 框是
+    /// (40, 582, 268.7×31) —— SwiftUI 把 Form 里的 Toggle 拉伸成整行宽（标签在最左、
+    /// 真 UISwitch ~51pt 贴在最右、中间全是空地）。所以 element.tap() 的几何中心
+    /// （x≈174）和左侧 20%（x≈94，标签右边一点）都落在死区，点了等于没点
+    /// （第四、五轮 CI：轮询 5 秒 value 恒为 1）。点框右侧 90%（x≈282）落在开关本体上。
     private func tapToggle(_ toggle: XCUIElement) {
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
     }
 
     /// 中间行 ↑：SerpAPI 与上面的 Tavily 换位；重开后顺序还在。
