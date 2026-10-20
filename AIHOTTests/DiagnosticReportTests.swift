@@ -76,6 +76,7 @@ final class DiagnosticReportTests: XCTestCase {
         input.keyStorage = "对话密钥在钥匙串；搜索密钥无降级"
         input.searchOrder = "AnySearch → Tavily"
         input.searchDisabled = "Serper"
+        input.searchKeys = "AnySearch 已填 · Tavily 未填"
 
         let text = DiagnosticReport.make(input)
         for expected in [
@@ -91,6 +92,7 @@ final class DiagnosticReportTests: XCTestCase {
             "对话密钥在钥匙串",
             "AnySearch → Tavily",
             "Serper",
+            "搜索密钥：AnySearch 已填 · Tavily 未填",
         ] {
             XCTAssertTrue(text.contains(expected), "缺了「\(expected)」")
         }

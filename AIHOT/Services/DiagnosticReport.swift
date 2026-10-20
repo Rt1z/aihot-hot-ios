@@ -35,6 +35,8 @@ enum DiagnosticReport {
         var keyStorage: String = "-"
         var searchOrder: String = "-"
         var searchDisabled: String = "无"
+        /// 每家「填没填 Key」（只说有没有，绝不含内容或长度）。
+        var searchKeys: String = "未检查"
     }
 
     static func make(_ input: Input) -> String {
@@ -73,6 +75,7 @@ enum DiagnosticReport {
         lines.append("密钥存储：\(input.keyStorage)")
         lines.append("搜索工具顺序：\(input.searchOrder)")
         lines.append("已停用的搜索工具：\(input.searchDisabled)")
+        lines.append("搜索密钥：\(input.searchKeys)")
 
         lines.append("")
         lines.append("（此段不含任何 API Key 与完整地址，可直接发给开发者。）")
@@ -162,7 +165,11 @@ enum DiagnosticReport {
             chatBaseURL: baseRaw,
             keyStorage: storageParts.joined(separator: "；"),
             searchOrder: order.map(\.title).joined(separator: " → "),
-            searchDisabled: disabledText.isEmpty ? "无" : disabledText.joined(separator: "、")
+            searchDisabled: disabledText.isEmpty ? "无" : disabledText.joined(separator: "、"),
+            // 「为什么没联网」最常见的答案就在这一行；只报有无，不报内容
+            searchKeys: order
+                .map { "\($0.title) \(secret.searchKey(for: $0).isEmpty ? "未填" : "已填")" }
+                .joined(separator: " · ")
         )
         return make(input)
     }
