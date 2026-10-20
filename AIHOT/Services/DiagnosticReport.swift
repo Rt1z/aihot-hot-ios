@@ -23,7 +23,7 @@ enum DiagnosticReport {
         var appearance: String = "跟随系统"
         var hotCount: Int = 0
         var hotUpdated: String = "未知"
-        var hotNotice: String?
+        var hotNotice: String? = nil
         var enrichmentEnabled: Bool = true
         var enrichmentParsed: String = "未解析出结果（已退回接口字段）"
         var favoritesCount: Int = 0
@@ -134,7 +134,7 @@ enum DiagnosticReport {
         }
 
         let order = AppSettings.searchToolOrder
-        let disabled = AppSettings.searchDisabled
+        let disabled = AppSettings.searchToolDisabled
         let disabledText = order.filter { disabled.contains($0) }.map(\.title)
         let reportLines = ReportKind.allCases.map { kind -> String in
             let state = reports.state(for: kind)

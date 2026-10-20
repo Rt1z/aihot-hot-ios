@@ -55,7 +55,7 @@ enum ReportPeriod {
         var leftovers: [ReportEntry] = []
 
         for entry in entries {
-            guard let start = entry.periodStart, let parts = dateParts(start) else {
+            guard let start = entry.periodStart, dateParts(start) != nil else {
                 leftovers.append(entry)
                 continue
             }
