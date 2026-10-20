@@ -292,8 +292,10 @@ enum LeaderboardParser {
             guard let raw = raw else { continue }
 
             if token.range(at: 1).location != NSNotFound {
-                // <h3>编程 74.3 8 项</h3> 开一组
-                let headingText = HTMLTextExtractor.normalize(HTMLTextExtractor.plainText(from: raw))
+                // <h3>编程 74.3 8 项</h3> 开一组。
+                // 必须 collapseSpaces：纯文本里「74.3」「8」之间是两个空格，
+                // 下面的正则只留一个 —— 不折叠就一组都匹配不上（CI 实测）。
+                let headingText = collapseSpaces(HTMLTextExtractor.normalize(HTMLTextExtractor.plainText(from: raw)))
                 guard let match = RegexUtil.firstMatch(
                     #"^(编程|科研|专业办公|知识问答|真人盲选) ([\d.]+) ?(\d+) 项$"#, in: headingText
                 ) else { continue }
