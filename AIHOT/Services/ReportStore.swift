@@ -156,7 +156,7 @@ final class ReportStore: ObservableObject {
             case .modified(let response):
                 states[kind]?.entries = response.items
             case .notModified:
-                if states[kind]?.entries.isEmpty {
+                if states[kind]?.entries.isEmpty == true {
                     let retry = try await apiIndex(kind, ignoreCache: true)
                     if case .modified(let response) = retry {
                         states[kind]?.entries = response.items
@@ -175,7 +175,7 @@ final class ReportStore: ObservableObject {
 
         // 3) 往期列表不重复列最新一期（两个请求谁先到都按最终结果剔）
         if let latestKey = states[kind]?.latest?.periodKey {
-            states[kind]?.entries = states[kind]?.entries.filter { $0.periodKey != latestKey }
+            states[kind]?.entries = (states[kind]?.entries ?? []).filter { $0.periodKey != latestKey }
         }
 
         if let error = firstError {
@@ -242,7 +242,7 @@ final class ReportStore: ObservableObject {
         }
     }
 
-    private func apiReport(kind: ReportKind, period: String, ignoreCache: Bool) async throws -> LoadOutcome<ReportResponse> {
+    private func apiReport(_ kind: ReportKind, period: String, ignoreCache: Bool) async throws -> LoadOutcome<ReportResponse> {
         switch kind {
         case .weekly: return try await api.weeklyReport(period: period, ignoreCache: ignoreCache)
         case .monthly: return try await api.monthlyReport(period: period, ignoreCache: ignoreCache)
