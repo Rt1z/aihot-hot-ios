@@ -1566,6 +1566,83 @@ def lb_parse_detail(html):
 
 
 # --------------------------------------------------------------------------
+# 镜像 18：周报/月报的期号、区间与往期分组（ReportPeriod）
+# --------------------------------------------------------------------------
+# 与 Swift `ReportPeriod` 对应（规则 4：Swift 是权威）。日期只做 yyyy-MM-dd 的
+# 字符串切分，不构造日期对象 —— 与 Swift 同一信条：不引入日历/时区依赖。
+
+REPORT_WEEK_KEY_RE = re.compile(r"^(\d{4})-W(\d{1,2})$")
+REPORT_MONTH_KEY_RE = re.compile(r"^(\d{4})-(\d{2})$")
+REPORT_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+
+
+def report_title(period_key):
+    match = REPORT_WEEK_KEY_RE.match(period_key)
+    if match:
+        week = int(match.group(2))
+        if 1 <= week <= 53:
+            return "%s 年第 %d 周" % (match.group(1), week)
+    match = REPORT_MONTH_KEY_RE.match(period_key)
+    if match:
+        month = int(match.group(2))
+        if 1 <= month <= 12:
+            return "%s 年 %d 月" % (match.group(1), month)
+    return None
+
+
+def report_date_parts(text):
+    match = REPORT_DATE_RE.match(text)
+    if not match:
+        return None
+    year, month, day = match.group(1), match.group(2), match.group(3)
+    if not (1 <= int(month) <= 12) or not (1 <= int(day) <= 31):
+        return None
+    return {"full": "%s.%s.%s" % (year, month, day),
+            "month_day": "%s.%s" % (month, day), "year": year}
+
+
+def report_range_text(start, end):
+    if start is None or end is None:
+        return None
+    s = report_date_parts(start)
+    e = report_date_parts(end)
+    if s is None or e is None:
+        return None
+    if s["year"] == e["year"]:
+        return "%s – %s" % (s["month_day"], e["month_day"])
+    return "%s – %s" % (s["full"], e["full"])
+
+
+def report_group_by_month(entries):
+    order = []
+    buckets = {}
+    leftovers = []
+    for entry in entries:
+        start = entry.get("periodStart")
+        parts = report_date_parts(start) if start is not None else None
+        if parts is None:
+            leftovers.append(entry)
+            continue
+        key = start[:7]                      # "2026-10"
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(entry)
+
+    groups = []
+    for key in order:
+        pieces = key.split("-")
+        if len(pieces) == 2:
+            title = "%s 年 %d 月" % (pieces[0], int(pieces[1]))
+        else:
+            title = "其它"
+        groups.append({"title": title, "entries": buckets[key]})
+    if leftovers:
+        groups.append({"title": "其它", "entries": leftovers})
+    return groups
+
+
+# --------------------------------------------------------------------------
 # 断言（全部以夹具为准）
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
@@ -2405,6 +2482,133 @@ def run():
     check(lb_parse_detail("") is None, "空 HTML 无详情")
     check(lb_parse_detail("<html><body><h1>只有名字</h1></body></html>") is not None,
           "只有 h1 也能出详情（其余字段全 nil，UI 各自显灰）")
+
+    print("")
+    print("== 镜像 18：周报/月报的期号、区间与往期分组（ReportPeriod）==")
+    # 断言全部从四份夹具字节推导（与 AIHOTTests/ReportDecodingTests.swift、
+    # ReportPeriodTests.swift 一致）。解码假设（可选性、小数秒）一并钉在这里：
+    # Python 读同一份 JSON，null → None 与 Swift 的 nil 对齐。
+
+    # --- 最新一期周报 ---
+    wk = fixture_json("report-weekly-latest.json")
+    check_eq(wk["schemaVersion"], 1, "周报信封 schemaVersion 1")
+    r = wk["report"]
+    check_eq(r["week"], "2026-W42", "latest 周报是 2026-W42")
+    check(r.get("month") is None, "周报没有 month 键")
+    check_eq(r["periodStart"], "2026-10-12", "periodStart 展示原文")
+    check_eq(r["periodEnd"], "2026-10-18", "periodEnd 展示原文")
+    check_eq(r["generatedAt"], "2026-10-19T02:00:16.671Z", "generatedAt 带小数秒")
+    check(r["overview"] is not None, "新期次有 overview")
+    check_eq(r["links"]["aihot"], "https://aihot.news/weekly/2026-W42", "期回链 links.aihot")
+    check_eq(r["attribution"]["name"], "AIHOT", "署名")
+    check_eq([s["label"] for s in r["sections"]],
+             ["模型发布/更新", "产品发布/更新", "行业动态", "论文研究"], "分栏标签原样")
+    check_eq([len(s["items"]) for s in r["sections"]], [7, 4, 6, 3], "四栏条数")
+    check(all(s["summary"] is not None for s in r["sections"]), "新期次四个 summary 都在")
+    first = r["sections"][0]["items"][0]
+    check_eq(first["title"], "Google 发布 Gemini 4 Argon：面向复杂工程与科研任务的前沿模型",
+             "首条标题")
+    check_eq(first["source"]["name"], "Google Blog：AI（RSS）", "首条来源")
+    check(first["links"]["original"].startswith("https://blog.google/"), "首条有原文链接")
+    check_eq(first["publishedAt"], "2026-10-13T16:00:00.000Z", "publishedAt 带小数秒")
+
+    # --- 周报索引 ---
+    idx = fixture_json("report-weekly-index.json")
+    check_eq(idx["schemaVersion"], 1, "索引信封 schemaVersion 1")
+    check_eq(idx["count"], 12, "索引 count 12")
+    check_eq(len(idx["items"]), 12, "索引 12 条")
+    ids = [(e.get("week") or e.get("month")) for e in idx["items"]]
+    check_eq(len(set(ids)), 12, "期号唯一（NavigationLink 不串页）")
+    check_eq(ids[0], "2026-W42", "首条最新")
+    check_eq(ids[-1], "2026-W31", "末条最旧")
+    check_eq(idx["items"][0]["periodStart"], "2026-10-12", "首条区间起点")
+    check_eq(idx["items"][-1]["periodStart"], "2026-07-27", "末条区间起点")
+    check(all(e["links"] and e["links"].get("aihot") for e in idx["items"]),
+          "每条往期都有 links.aihot（网页版契约）")
+    check(all(e.get("headline") for e in idx["items"]), "每条往期都有 headline")
+
+    # --- 老期次的 null（可选性的回归钉） ---
+    old = fixture_json("report-weekly-older.json")["report"]
+    check_eq(old["week"], "2026-W30", "老期次 2026-W30")
+    check(old["overview"] is None, "老期次 overview 是 null → Swift nil")
+    check_eq(len(old["sections"]), 5, "老期次 5 栏")
+    check_eq([s["label"] for s in old["sections"]], [
+        "开源模型性能逼近前沿，闭源商业模式承压",
+        "AI安全事件频发：自主智能体攻破生产环境",
+        "端侧与具身智能模型加速落地",
+        "AI办公与创作工具全面升级",
+        "AI基础设施与训练效率创新",
+    ], "老期次 label 是主题句（原样渲染，不归一化）")
+    check(old["sections"][4]["summary"] is None, "末栏 summary null")
+    check(old["sections"][0]["summary"] is not None, "首栏 summary 在")
+    check_eq([len(s["items"]) for s in old["sections"]], [4, 4, 4, 4, 4], "老期次各栏 4 条")
+    check("\n" in old["sections"][0]["items"][0]["summary"], "摘要原文带换行（透传不压缩）")
+
+    # --- 月报（钉 month 键） ---
+    mo = fixture_json("report-monthly-latest.json")["report"]
+    check(mo.get("week") is None, "月报没有 week 键")
+    check_eq(mo["month"], "2026-09", "月报 2026-09")
+    check_eq(mo["periodStart"], "2026-09-01", "月报起点")
+    check_eq(mo["periodEnd"], "2026-09-30", "月报终点")
+    check_eq(mo["generatedAt"], "2026-10-01T11:48:32.108Z", "月报 generatedAt 带小数秒")
+    check_eq(mo["links"]["aihot"], "https://aihot.news/monthly/2026-09", "月报期回链")
+    check_eq([s["label"] for s in mo["sections"]],
+             ["模型发布/更新", "产品发布/更新", "行业动态", "论文研究", "技巧与观点"], "月报分栏")
+    check_eq(sum(1 for s in mo["sections"] if s["summary"] is None), 4,
+             "月报四个 summary 是 null")
+    check(mo["sections"][0]["summary"] is not None, "月报首栏 summary 在")
+
+    # --- ReportPeriod.title ---
+    check_eq(report_title("2026-W42"), "2026 年第 42 周", "周报期号 → 中文标题")
+    check_eq(report_title("2026-W07"), "2026 年第 7 周", "补零周号剥掉前导零")
+    check_eq(report_title("2026-W1"), "2026 年第 1 周", "周号位数不限")
+    check_eq(report_title("2026-W53"), "2026 年第 53 周", "53 周边界合法")
+    check_eq(report_title("2026-09"), "2026 年 9 月", "月报期号 → 中文标题")
+    check_eq(report_title("2026-12"), "2026 年 12 月", "12 月边界合法")
+    check(report_title("2026-W54") is None, "没有第 54 周")
+    check(report_title("2026-W0") is None, "没有第 0 周")
+    check(report_title("2026-13") is None, "没有第 13 个月")
+    check(report_title("2026-00") is None, "没有第 0 个月")
+    check(report_title("W42") is None, "缺年份认不出")
+    check(report_title("2026/09") is None, "斜杠格式认不出")
+    check(report_title("banana") is None, "乱码认不出（界面退回原文）")
+
+    # --- ReportPeriod.rangeText ---
+    check_eq(report_range_text("2026-10-12", "2026-10-18"), "10.12 – 10.18", "同年区间 MM.dd")
+    check_eq(report_range_text("2026-09-01", "2026-09-30"), "09.01 – 09.30", "补零两位")
+    check_eq(report_range_text("2025-12-29", "2026-01-04"), "2025.12.29 – 2026.01.04",
+             "跨年补年份")
+    check(report_range_text(None, "2026-10-18") is None, "起点缺失 → nil")
+    check(report_range_text("2026-10-12", None) is None, "终点缺失 → nil")
+    check(report_range_text(None, None) is None, "两端都缺 → nil")
+    check(report_range_text("2026-10", "2026-10-18") is None, "半截日期认不出 → nil")
+    check(report_range_text("2026-10-12", "2026-13-01") is None, "13 月不合法 → nil")
+    check(report_range_text("2026-10-12", "2026-10-32") is None, "32 日不合法 → nil")
+
+    # --- ReportPeriod.groupByMonth（拿索引夹具当真实输入） ---
+    groups = report_group_by_month(idx["items"])
+    check_eq([g["title"] for g in groups],
+             ["2026 年 10 月", "2026 年 9 月", "2026 年 8 月", "2026 年 7 月"],
+             "分组标题按接口顺序（不排序）")
+    check_eq([len(g["entries"]) for g in groups], [2, 4, 5, 1], "各组条数")
+    flat = [e for g in groups for e in g["entries"]]
+    check_eq(len(flat), len(idx["items"]), "不丢不重")
+    check_eq(set(e["week"] for e in flat), set(ids), "条目集合与输入一致")
+
+    mixed = [
+        {"week": "2026-W41", "periodStart": "2026-10-05"},
+        {"week": "2026-W01", "periodStart": None},
+        {"week": "2026-W02", "periodStart": "not-a-date"},
+        {"week": "2026-W42", "periodStart": "2026-10-12"},
+    ]
+    mg = report_group_by_month(mixed)
+    check_eq([g["title"] for g in mg], ["2026 年 10 月", "其它"],
+             "缺 periodStart 的条目归到末尾「其它」组")
+    check_eq([e["week"] for e in mg[0]["entries"]], ["2026-W41", "2026-W42"],
+             "同月内保持输入顺序")
+    check_eq([e["week"] for e in mg[1]["entries"]], ["2026-W01", "2026-W02"],
+             "缺失与非法都进「其它」")
+    check(report_group_by_month([]) == [], "空输入 → 空分组")
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)

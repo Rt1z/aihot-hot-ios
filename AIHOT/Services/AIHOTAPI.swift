@@ -139,6 +139,70 @@ final class AIHOTAPI: @unchecked Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
+    // MARK: - 周报 / 月报（有 JSON 接口，带 ETag —— 与模型榜的 HTML 抓取相反）
+
+    /// 最新一期周报。`s-maxage=300` 且有 ETag，条件请求真的有效（CLAUDE.md 规则 19）。
+    func weeklyLatest(ignoreCache: Bool = false) async throws -> LoadOutcome<ReportResponse> {
+        try await getJSON(
+            path: "/api/v1/weeklies/latest",
+            cacheKey: "weeklies-latest",
+            as: ReportResponse.self,
+            useETag: !ignoreCache
+        )
+    }
+
+    /// 周报全量索引（实测 12 期，无分页）。
+    func weeklyIndex(ignoreCache: Bool = false) async throws -> LoadOutcome<ReportIndexResponse> {
+        try await getJSON(
+            path: "/api/v1/weeklies",
+            cacheKey: "weeklies-index",
+            as: ReportIndexResponse.self,
+            useETag: !ignoreCache
+        )
+    }
+
+    /// 某一周的周报（`period` 形如 `2026-W41`）。
+    func weeklyReport(period: String, ignoreCache: Bool = false) async throws -> LoadOutcome<ReportResponse> {
+        try await getJSON(
+            path: "/api/v1/weeklies/\(Self.escaped(period))",
+            cacheKey: "weekly-\(period)",
+            as: ReportResponse.self,
+            useETag: !ignoreCache
+        )
+    }
+
+    func monthlyLatest(ignoreCache: Bool = false) async throws -> LoadOutcome<ReportResponse> {
+        try await getJSON(
+            path: "/api/v1/monthlies/latest",
+            cacheKey: "monthlies-latest",
+            as: ReportResponse.self,
+            useETag: !ignoreCache
+        )
+    }
+
+    func monthlyIndex(ignoreCache: Bool = false) async throws -> LoadOutcome<ReportIndexResponse> {
+        try await getJSON(
+            path: "/api/v1/monthlies",
+            cacheKey: "monthlies-index",
+            as: ReportIndexResponse.self,
+            useETag: !ignoreCache
+        )
+    }
+
+    /// 某一月的月报（`period` 形如 `2026-09`）。
+    func monthlyReport(period: String, ignoreCache: Bool = false) async throws -> LoadOutcome<ReportResponse> {
+        try await getJSON(
+            path: "/api/v1/monthlies/\(Self.escaped(period))",
+            cacheKey: "monthly-\(period)",
+            as: ReportResponse.self,
+            useETag: !ignoreCache
+        )
+    }
+
+    private static func escaped(_ period: String) -> String {
+        period.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? period
+    }
+
     /// 模型榜页面 HTML（榜页 path 见 `LeaderboardCategory.path`，详情页传
     /// `/leaderboard/<slug>`）。榜单没有公开 JSON 接口，只能整页抓回来解析。
     ///

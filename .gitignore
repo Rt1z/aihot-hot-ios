@@ -20,6 +20,9 @@ AIHOT-unsigned/
 Thumbs.db
 desktop.ini
 
+# Python 镜像跑出来的缓存（tools/*.py 会在 tools/__pycache__ 留字节码）
+__pycache__/
+
 # --- 编辑器 ---
 .vscode/
 .idea/

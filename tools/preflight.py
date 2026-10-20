@@ -40,6 +40,10 @@ JSON_FILES = [
     "AIHOTTests/Fixtures/exa-search.json",
     "AIHOTTests/Fixtures/exa-contents.json",
     "AIHOTTests/Fixtures/exa-error.json",
+    "AIHOTTests/Fixtures/report-weekly-latest.json",
+    "AIHOTTests/Fixtures/report-weekly-index.json",
+    "AIHOTTests/Fixtures/report-weekly-older.json",
+    "AIHOTTests/Fixtures/report-monthly-latest.json",
 ]
 
 PYTHON_FILES = [

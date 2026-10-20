@@ -58,7 +58,7 @@
 
 | 官网（/hot） | App |
 | --- | --- |
-| 左侧导航 + 顶栏 + 底部 tab（精选/日报/模型榜/我的） | 底部栏是 App 自己的四个 tab：**热点 / 收藏 / 模型榜 / 设置** |
+| 左侧导航 + 顶栏 + 底部 tab（精选/日报/模型榜/我的） | 底部栏是 App 自己的五个 tab：**热点 / 收藏 / 模型榜 / 周报 / 设置** |
 | 榜单头：过去 48 小时… · 更新时间 · 实时热度 · 怎么算 | 标题下两行说明，「怎么算」按钮在应用内打开官网该页 |
 | NO.01–03 大卡（序号/爆新徽章/涨跌/标题/正文/头像行/热度指数） | 3 张全宽卡；正文取 story digest（与官网同源），4 行截断 |
 | 头像行「+10 邵猛、Oran Ge 等 7 个来源·16 位参与者」 | 字母头像栈（来源名哈希取色）+「N 个来源 · M 位参与者」 |
@@ -72,6 +72,7 @@
 | 详情页右上「对话」 | AI 对话弹窗：多轮、流式；模型读过这条的摘要与时间线，Anthropic 协议下还能联网搜索、读原文（见第 4 节） |
 | （App 新增）收藏 | 底部「收藏」tab：按收藏时间倒序、左滑「取消收藏」。详情页是唯一的收藏入口（列表行上刻意不放按钮，避免按钮套在整行的链接里） |
 | /leaderboard 模型榜 | 底部「模型榜」tab：综合/编程/科研/专业办公/知识问答五个分类分段切换，30 行（名次/模型/厂商/上线日期/三档价格/评分/覆盖率）；点一行进模型详情页（概览评分与价格、四张领域卡、逐项公开成绩）；页头「N 项评测 · N 家机构 · 更新时间」行右端的「怎么算」和页脚来源回链都通向官网。榜单没有公开 JSON 接口，数据从页面 HTML 解析（解析失败保留旧数据 + 横幅） |
+| /weekly、/monthly 周报月报 | 底部「周报」tab：周报/月报分段切换，最新一期全文（标题/综述/分栏条目）+ 往期按月分组（点进看那一期全文）；条目点开走原文（系统阅读器），页头行右端「网页版」与页脚来源回链通向官网。有公开 JSON 接口（`/api/v1/weeklies`、`/api/v1/monthlies`，带 ETag、`s-maxage=300`），断网显示缓存快照 + 横幅 |
 
 配色 token 全部集中在 `AIHOT/Design/Theme.swift`（近黑底 + 热度橙，深浅色跟随系统），想改风格只改这一个文件。
 
@@ -98,6 +99,7 @@
 | 榜单 10 条 | `GET /api/v1/hot-topics` |
 | 详情（AI 摘要 + 报道时间线） | `GET /api/v1/stories/{publicId}` |
 | 热度指数/涨跌/爆新（可选补全） | `GET /hot` 页面文本解析 |
+| 周报/月报最新一期 + 往期索引 + 单期全文 | `GET /api/v1/weeklies(/latest|/{week})`、`GET /api/v1/monthlies(/latest|/{month})` |
 
 代码里遵守了对方写明的要求：
 
@@ -212,18 +214,21 @@ tools/logic_tests.py        纯逻辑镜像测试：用 Python 把解析/ID/时�
                             （和 Swift 单测读同一份夹具，CI 里先于编译执行）
 AIHOT/
   Info.plist
-  RootView.swift            @main + 底部四 tab（热点/收藏/模型榜/设置）+ 外观（跟随系统/深色/浅色）
+  RootView.swift            @main + 底部五 tab（热点/收藏/模型榜/周报/设置）+ 外观（跟随系统/深色/浅色）
   Design/                   Theme.swift（色板）、Components.swift（徽章/头像/骨架屏…）
   Models/                   HotTopics.swift、Story.swift（字段与接口一一对应）、
-                            Leaderboard.swift（五个分类 / 榜页一行 / 详情页）
-  Services/                 AIHOTAPI（ETag/退避 + 模型榜 HTML）、HotTopicsStore（节流/离线/补全）、
+                            Leaderboard.swift（五个分类 / 榜页一行 / 详情页）、
+                            Report.swift（周报/月报：期次、索引条目、分栏条目）
+  Services/                 AIHOTAPI（ETag/退避 + 模型榜 HTML + 周报月报 JSON）、HotTopicsStore（节流/离线/补全）、
                             SnapshotCache（榜单快照）、StoryCache（故事正文落盘）、
                             FavoritesStore（收藏落盘，UserDefaults）、
                             StoryID、AppSettings、
                             ReportTimeline（报道节奏分桶，纯函数 + Python 镜像）、
                             HTMLTextExtractor + HotPageEnricher（网页文本增强）、
                             LeaderboardParser（模型榜页面解析，纯函数 + Python 镜像）、
-                            LeaderboardStore（模型榜节流/缓存/详情）
+                            LeaderboardStore（模型榜节流/缓存/详情）、
+                            ReportPeriod（周报/月报期号与分组，纯函数 + Python 镜像）、
+                            ReportStore（周报/月报节流/快照/详情）
                             SSEParser（流式解析）、AIChatTool（工具调用拼接）、
                             AIChatConfig、AIChatRequestBuilder、AIChatNewsContext、
                             AIChatSecretStore（钥匙串）、AIChatAPI（AI 对话）、
@@ -237,6 +242,7 @@ AIHOT/
   Features/Hot/             榜单页、大卡、紧凑行、RelativeTime
   Features/Favorites/       收藏列表、收藏行
   Features/Leaderboard/     模型榜列表页（五分类切换）、模型详情页（评分/价格/领域卡/逐项成绩）
+  Features/Report/          周报/月报列表页（周报月报切换、最新一期、往期分组）、期次正文渲染、往期详情页
   Features/Story/           详情页（AI 摘要 + 报道节奏图 + 时间线 + 收藏书签 + 对话弹窗）、
                             ReportTimelineChart（Swift Charts 柱状图）、
                             MarkdownBlocksView（回答的 Markdown 分块渲染）
@@ -310,7 +316,10 @@ AIHOTUITests/               UI 测试（设置页换序与开关持久化；用�
 - [ ] 原文按钮在应用内打开，且**默认是阅读器模式**（纯正文）；点旁边的「网页版」能退回原网页
 - [ ] 报道多的 story 能看到「报道节奏」柱状图，断档那几小时是贴着底的空柱子，最高那根和下面那行说明的峰值对得上
 - [ ] 报道只有 0–1 条的 story，详情页**不出现**「报道节奏」这一节，页面不破版
-- [ ] 底部四个 tab 能切换（设置仍在最后），选中色是热度橙
+- [ ] 底部五个 tab 能切换（设置仍在最后），选中色是热度橙
+- [ ] 周报 tab：周报/月报分段都能切，最新一期的标题/综述/分栏条目齐全；老期次没有综述时整节省略、页面不破版
+- [ ] 往期按月分组显示，点进去能看那一期全文；条目点开进系统阅读器（原文），「网页版」「数据来源」回链能开网页
+- [ ] 断网重开：周报页显示缓存快照 + 横幅不白屏；「清除本地缓存」之后周报快照消失，收藏与对话记录仍在
 - [ ] 模型榜五个分类能切换，行数/首名与官网对应页一致；「待核验」价格显示灰字占位，不出现编造的数字
 - [ ] 点一行进模型详情：评分/名次/价格/四张领域卡/逐项成绩齐全；断网后重进详情能显示内存里已有的数据
 - [ ] 模型榜下拉刷新、断网出缓存 + 横幅；「怎么算」「网页版」和页脚来源回链能开网页

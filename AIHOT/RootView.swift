@@ -9,6 +9,7 @@ struct RootView: View {
     @StateObject private var hot = HotTopicsStore()
     @StateObject private var favorites = FavoritesStore()
     @StateObject private var leaderboard = LeaderboardStore()
+    @StateObject private var reports = ReportStore()
 
     var body: some View {
         TabView {
@@ -18,12 +19,15 @@ struct RootView: View {
             FavoritesListView(hot: hot, favorites: favorites)
                 .tabItem { Label("收藏", systemImage: "bookmark") }
 
-            // 模型榜插在收藏和设置之间：「设置」保持最后是 iOS 惯例。
+            // 模型榜/周报插在收藏和设置之间：「设置」保持最后是 iOS 惯例。
             // 注意 AIHOTUITests 按下标取「设置」Tab，插位要同步改那边的 boundBy。
             LeaderboardView(store: leaderboard)
                 .tabItem { Label("模型榜", systemImage: "chart.bar.xaxis") }
 
-            AboutView(store: hot, favorites: favorites)
+            ReportTabView(store: reports)
+                .tabItem { Label("周报", systemImage: "newspaper") }
+
+            AboutView(store: hot, favorites: favorites, reports: reports)
                 .tabItem { Label("设置", systemImage: "gearshape") }
         }
         .tint(Theme.accent)
