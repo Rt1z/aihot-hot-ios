@@ -20,10 +20,17 @@ struct LeaderboardView: View {
                     categoryPicker
 
                     if let header = store.headerText(for: selectedCategory) {
-                        Text(header)
-                            .font(Typography.meta)
-                            .foregroundColor(Theme.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(header)
+                                .font(Typography.meta)
+                                .foregroundColor(Theme.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            rulesButton
+                        }
+                    } else {
+                        rulesButton
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
 
                     if let notice = store.notice {
@@ -39,18 +46,6 @@ struct LeaderboardView: View {
             .refreshable { await store.refresh(category: selectedCategory) }
             .navigationTitle("AI 模型榜")
             .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        webLink = WebLinkSheet(url: LeaderboardView.rulesURL)
-                    } label: {
-                        Text("怎么算")
-                            .font(Typography.meta)
-                            .foregroundColor(Theme.accent)
-                    }
-                    .accessibilityLabel("评分规则")
-                }
-            }
             .navigationDestination(for: LeaderboardModel.self) { model in
                 LeaderboardDetailView(store: store, slug: model.slug, fallbackName: model.name)
             }
@@ -78,6 +73,19 @@ struct LeaderboardView: View {
         }
         .pickerStyle(.segmented)
         .padding(.top, 4)
+    }
+
+    /// 「怎么算」：跟在页头（N 项评测 · N 家机构 · 更新时间）同一行的右端，
+    /// 不占顶栏 —— 顶栏留给系统返回键和大标题。
+    private var rulesButton: some View {
+        Button {
+            webLink = WebLinkSheet(url: LeaderboardView.rulesURL)
+        } label: {
+            Text("怎么算")
+                .font(Typography.meta)
+                .foregroundColor(Theme.accent)
+        }
+        .accessibilityLabel("评分规则")
     }
 
     // MARK: - 列表
