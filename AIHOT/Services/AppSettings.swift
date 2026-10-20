@@ -183,6 +183,14 @@ enum AppSettings {
         UserDefaults.standard.removeObject(forKey: aiChatSearchToolDisabledKey)
     }
 
+    // MARK: - 周报/月报（Tab 角标）
+
+    /// 每个栏目「上次看到的期号」。只用来算 Tab 角标，不参与内容判断；
+    /// 与内容缓存分开存 —— 清缓存不该把「已读」也清掉。
+    static func lastSeenReportKey(for kind: ReportKind) -> String {
+        "aihot.reports.lastSeen.\(kind.rawValue)"
+    }
+
     /// 按当前设置解析出一份可用配置；没配好（或没填 Key）返回 nil。
     static func currentAIChatConfig() -> AIChatConfig? {
         let defaults = UserDefaults.standard

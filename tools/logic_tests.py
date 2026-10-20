@@ -1643,6 +1643,38 @@ def report_group_by_month(entries):
 
 
 # --------------------------------------------------------------------------
+# 镜像 19：运行诊断的地址脱敏与 Tab 角标（DiagnosticReport / ReportUnread）
+# --------------------------------------------------------------------------
+# 与 Swift `DiagnosticReport.hostOnly` / `ReportUnread.isUnread` 对应
+# （规则 4：Swift 是权威）。地址那条是安全边界 —— SerpAPI 的 Key 在查询串里，
+# 所以诊断正文只允许出现 scheme://主机[:端口]。
+
+UNPARSEABLE = "（无法解析）"
+
+
+def diagnostic_host_only(raw):
+    trimmed = raw.strip()
+    if "://" not in trimmed:
+        return UNPARSEABLE
+    scheme, rest = trimmed.split("://", 1)
+    scheme = scheme.lower()
+    if scheme not in ("http", "https"):
+        return UNPARSEABLE
+    authority = re.split(r"[/?#]", rest, 1)[0]
+    if "@" in authority:                     # 凭据只可能在最后一个 @ 之前
+        authority = authority.rsplit("@", 1)[1]
+    if not authority:
+        return UNPARSEABLE
+    return "%s://%s" % (scheme, authority)
+
+
+def report_is_unread(latest, last_seen):
+    if latest is None or last_seen is None:
+        return False
+    return latest != last_seen
+
+
+# --------------------------------------------------------------------------
 # 断言（全部以夹具为准）
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
@@ -2609,6 +2641,31 @@ def run():
     check_eq([e["week"] for e in mg[1]["entries"]], ["2026-W01", "2026-W02"],
              "缺失与非法都进「其它」")
     check(report_group_by_month([]) == [], "空输入 → 空分组")
+
+    print("== 镜像 19：运行诊断的地址脱敏与 Tab 角标（DiagnosticReport / ReportUnread）==")
+    check_eq(diagnostic_host_only("https://api.anthropic.com/v1/messages?api_key=SECRET#x"),
+             "https://api.anthropic.com", "路径/查询/片段全部丢掉")
+    check_eq(diagnostic_host_only("https://serpapi.com/search?engine=google&q=ping"),
+             "https://serpapi.com", "SerpAPI 的 Key 在查询串里")
+    check_eq(diagnostic_host_only("https://user:pass@relay.example.com:8443/v1"),
+             "https://relay.example.com:8443", "凭据丢掉、端口保留")
+    check_eq(diagnostic_host_only("HTTP://Example.com/x"), "http://Example.com",
+             "只小写协议、主机原样")
+    check_eq(diagnostic_host_only("  https://relay.example.com/v1 \n"),
+             "https://relay.example.com", "两端空白去掉")
+    check_eq(diagnostic_host_only("https://[::1]:8080/x"), "https://[::1]:8080", "IPv6 字面量")
+    check_eq(diagnostic_host_only(""), UNPARSEABLE, "空串认不出")
+    check_eq(diagnostic_host_only("api.anthropic.com"), UNPARSEABLE, "缺协议")
+    check_eq(diagnostic_host_only("https://"), UNPARSEABLE, "缺主机")
+    check_eq(diagnostic_host_only("ftp://host/x"), UNPARSEABLE, "只认 http(s)")
+    check_eq(diagnostic_host_only("https://user@/x"), UNPARSEABLE, "@ 后面没有主机")
+
+    check(not report_is_unread(None, None), "两侧都缺 → 不算未读")
+    check(not report_is_unread("2026-W42", None), "没有基线 → 不算未读")
+    check(not report_is_unread(None, "2026-W41"), "没有最新一期 → 不算未读")
+    check(not report_is_unread("2026-W42", "2026-W42"), "同期号 → 已读")
+    check(report_is_unread("2026-W42", "2026-W41"), "期号变了 → 未读")
+    check(report_is_unread("2026-W41", "2026-W42"), "只看相等与否")
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)

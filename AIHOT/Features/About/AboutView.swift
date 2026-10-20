@@ -12,6 +12,7 @@ struct AboutView: View {
 
     @State private var safariURL: URL?
     @State private var copiedDiagnostics = false
+    @State private var copiedRunDiagnostics = false
     @State private var showClearFavorites = false
     @State private var showClearChatHistory = false
 
@@ -247,15 +248,26 @@ struct AboutView: View {
 
             Section {
                 Button {
+                    UIPasteboard.general.string = DiagnosticReport.capture(
+                        hot: store,
+                        favorites: favorites,
+                        reports: reports
+                    )
+                    copiedRunDiagnostics = true
+                } label: {
+                    Label(copiedRunDiagnostics ? "已复制到剪贴板" : "复制运行诊断", systemImage: "doc.on.doc")
+                }
+
+                Button {
                     UIPasteboard.general.string = store.diagnosticsText()
                     copiedDiagnostics = true
                 } label: {
-                    Label(copiedDiagnostics ? "已复制到剪贴板" : "复制诊断信息", systemImage: "doc.on.doc")
+                    Label(copiedDiagnostics ? "已复制到剪贴板" : "复制热度解析诊断", systemImage: "doc.text.magnifyingglass")
                 }
             } header: {
                 Text("排查")
             } footer: {
-                Text("热度指数或涨跌没有显示时，点这里复制，把内容发出来即可判断是官网改版还是解析问题。")
+                Text("「复制运行诊断」包含版本号（可与安装包对应）、系统与机型、各栏目的条数/更新时间/提示、AI 对话与搜索工具的配置状态；不含 API Key，接口地址只保留主机名。任何异常都先发它。「复制热度解析诊断」另含 /hot 页面提取的原文，只在热度指数或涨跌没有显示时用。")
             }
 
             Section("关于") {

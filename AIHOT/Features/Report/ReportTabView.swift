@@ -12,6 +12,9 @@ struct ReportTabView: View {
 
     @State private var selectedKind: ReportKind = .weekly
     @State private var webLink: WebLinkSheet?
+    /// Tab 切走后本视图仍然活着（TabView 不销毁），所以「已读」只能在本视图
+    /// 真正可见时写 —— 否则在别的 Tab 里收到角标检查结果也会被顺手清掉。
+    @State private var isVisible = false
 
     var body: some View {
         NavigationStack {
@@ -33,7 +36,7 @@ struct ReportTabView: View {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
 
-                    if let notice = store.notice {
+                    if let notice = store.notice(for: selectedKind) {
                         NoticeBanner(notice: notice)
                     }
 
@@ -55,10 +58,21 @@ struct ReportTabView: View {
             }
         }
         .tint(Theme.accent)
-        .task { await store.loadIfNeeded() }
-        // 切周期立刻拉那个周期（refresh 内部自己节流）
+        // 冷启动只拉当前分段（月报等用户切过去再拉），见规则 19。
+        .task { await store.loadIfNeeded(kind: selectedKind) }
+        .onAppear {
+            isVisible = true
+            store.markSeen(selectedKind)
+        }
+        .onDisappear { isVisible = false }
+        // 切周期立刻拉那个周期（refresh 内部自己节流），并把这个周期记为已读
         .onChange(of: selectedKind) { kind in
+            store.markSeen(kind)
             Task { await store.refresh(kind: kind) }
+        }
+        // 停在本页时最新一期变了（角标检查或下拉刷新拿到新期）→ 立刻算已读
+        .onChange(of: store.state(for: selectedKind).latest?.periodKey) { _ in
+            if isVisible { store.markSeen(selectedKind) }
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
@@ -101,7 +115,7 @@ struct ReportTabView: View {
         } else if state.hasLoaded {
             EmptyStateView(
                 title: "暂时取不到最新一期",
-                message: store.notice?.message ?? "下拉即可重试，或稍后再来看看。",
+                message: store.notice(for: selectedKind)?.message ?? "下拉即可重试，或稍后再来看看。",
                 actionTitle: "重新加载",
                 action: { Task { await store.refresh(kind: selectedKind) } },
                 systemImage: "newspaper"
