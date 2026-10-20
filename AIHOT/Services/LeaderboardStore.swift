@@ -27,8 +27,8 @@ final class LeaderboardStore: ObservableObject {
 
     init(api: AIHOTAPI = .shared) {
         self.api = api
-        if let payload = LeaderboardCache.load() {
-            for board in payload.boards {
+        if let saved = LeaderboardCache.load() {
+            for board in saved {
                 boards[board.category] = board
             }
             hasLoaded = true
@@ -168,11 +168,11 @@ enum LeaderboardCache {
         }
     }
 
-    static func load() -> Payload? {
+    static func load() -> [LeaderboardBoard]? {
         guard let url = fileURL, FileManager.default.fileExists(atPath: url.path) else { return nil }
         do {
             let data = try Data(contentsOf: url)
-            return try JSONDecoder.aihot.decode(Payload.self, from: data)
+            return try JSONDecoder.aihot.decode(Payload.self, from: data).boards
         } catch {
             return nil
         }
