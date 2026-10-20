@@ -4,10 +4,11 @@ struct RootView: View {
 
     @AppStorage(AppSettings.appearanceKey) private var appearance: String = AppSettings.Appearance.system.rawValue
 
-    // 三块界面都要看到同一份状态，所以在顶层各持有一个实例、按构造器往下传。
-    // 这个代码库里没有 EnvironmentObject，不为了这两个 store 引入。
+    // 几块界面都要看到同一份状态，所以在顶层各持有一个实例、按构造器往下传。
+    // 这个代码库里没有 EnvironmentObject，不为了这些 store 引入。
     @StateObject private var hot = HotTopicsStore()
     @StateObject private var favorites = FavoritesStore()
+    @StateObject private var leaderboard = LeaderboardStore()
 
     var body: some View {
         TabView {
@@ -16,6 +17,11 @@ struct RootView: View {
 
             FavoritesListView(hot: hot, favorites: favorites)
                 .tabItem { Label("收藏", systemImage: "bookmark") }
+
+            // 模型榜插在收藏和设置之间：「设置」保持最后是 iOS 惯例。
+            // 注意 AIHOTUITests 按下标取「设置」Tab，插位要同步改那边的 boundBy。
+            LeaderboardView(store: leaderboard)
+                .tabItem { Label("模型榜", systemImage: "chart.bar.xaxis") }
 
             AboutView(store: hot, favorites: favorites)
                 .tabItem { Label("设置", systemImage: "gearshape") }

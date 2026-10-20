@@ -26,7 +26,8 @@ final class SearchToolSettingsUITests: XCTestCase {
     /// 设置 tab（第三格）→ 滚到「搜索工具」区块（在「AI 对话」下面一屏）。
     private func openSearchToolsSection() {
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 15), "App 没能启动")
-        app.tabBars.buttons.element(boundBy: 2).tap()
+        // Tab 顺序：热点 | 收藏 | 模型榜 | 设置 —— 「设置」是第 4 个（下标 3）
+        app.tabBars.buttons.element(boundBy: 3).tap()
         reveal(app.switches["search-toggle-serpapi"])
     }
 

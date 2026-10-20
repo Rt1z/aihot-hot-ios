@@ -1326,6 +1326,246 @@ def markdown_blocks(text):
 
 
 # --------------------------------------------------------------------------
+# 镜像 17：模型榜页面解析（LeaderboardParser）
+# --------------------------------------------------------------------------
+# 与 Swift `LeaderboardParser` 对应（规则 4：Swift 是权威）。榜单没有公开 JSON
+# 接口，数据只在 SSR HTML 里；三份夹具（综合榜/编程榜/详情页）两边都读。
+# 行/字段的锚点与 Swift 版一致：data-slug、可见文案、详情页字段级 class 锚。
+
+LB_ROW_RE = re.compile(r'<tr data-slug="([^"]+)"[^>]*>(.*?)</tr>', re.S)
+LB_MAIN_RE = re.compile(r"<main[^>]*>(.*?)</main>", re.S)
+LB_CATEGORY_HEADINGS = ("编程", "科研", "专业办公", "知识问答", "真人盲选")
+LB_HEADING_TO_CATEGORY = {
+    "编程": "coding",
+    "科研": "reasoning",
+    "专业办公": "professional",
+    "知识问答": "knowledge",
+}
+
+
+def lb_collapse_spaces(text):
+    return re.sub(r"\s+", " ", text)
+
+
+def lb_main(html):
+    match = LB_MAIN_RE.search(html)
+    return match.group(1) if match else html
+
+
+def lb_parse_row(slug, row_html):
+    link = re.search(r"<a[^>]*>(.*?)</a>", row_html, re.S)
+    if not link:
+        return None
+    name = lb_collapse_spaces(plain_text(link.group(1)).strip())
+    if not name:
+        return None
+
+    lines = [line.strip() for line in plain_text(row_html).split("\n") if line.strip()]
+    if not lines:
+        return None
+    try:
+        rank = int(lines[0])
+    except ValueError:
+        return None
+    if not 1 <= rank <= 99:
+        return None
+
+    released = eval_count = coverage = None
+    prices = []
+    score = None
+    for line in lines:
+        if released is None and re.fullmatch(r"\d{4}-\d{2}-\d{2}", line):
+            released = line
+        if eval_count is None:
+            m = re.search(r"(\d+) 项评测", line)
+            if m:
+                eval_count = int(m.group(1))
+        if coverage is None:
+            m = re.search(r"覆盖 (\d+) ?%", line)
+            if m:
+                coverage = int(m.group(1))
+        if line.startswith("¥") and len(prices) < 3:
+            prices.append(line)
+        if score is None:
+            m = re.match(r"^([\d.]+)  ?覆盖", line)
+            if m:
+                score = float(m.group(1))
+
+    provider = None
+    if len(lines) > 1:
+        parts = [p.strip() for p in re.split(r" {2,}", lines[1]) if p.strip()]
+        if parts and parts[0] == name and len(parts) > 1:
+            provider = parts[1]
+
+    return {
+        "rank": rank,
+        "slug": slug,
+        "name": name,
+        "provider": provider,
+        "released": released,
+        "eval_count": eval_count,
+        "coverage": coverage,
+        "cache_price": prices[0] if len(prices) > 0 else None,
+        "input_price": prices[1] if len(prices) > 1 else None,
+        "output_price": prices[2] if len(prices) > 2 else None,
+        "score": score,
+    }
+
+
+def lb_parse_board(html, category):
+    main = lb_main(html)
+    models = []
+    for match in LB_ROW_RE.finditer(main):
+        model = lb_parse_row(match.group(1), match.group(2))
+        if model is not None:
+            models.append(model)
+    if not models:
+        return None
+
+    text = plain_text(main)
+    eval_total = institutions = updated = None
+    header = re.search(r"(\d+) 项评测 · (\d+) 家机构 · (\d{1,2}/\d{1,2} \d{2}:\d{2}) 更新", text)
+    if header:
+        eval_total = int(header.group(1))
+        institutions = int(header.group(2))
+        updated = header.group(3)
+    return {
+        "category": category,
+        "eval_total": eval_total,
+        "institutions": institutions,
+        "updated": updated,
+        "models": models,
+    }
+
+
+def lb_parse_detail(html):
+    main = lb_main(html)
+    title = re.search(r"<h1[^>]*>(.*?)</h1>", main, re.S)
+    if not title:
+        return None
+    name = lb_collapse_spaces(plain_text(title.group(1)).strip())
+    if not name:
+        return None
+
+    text = plain_text(main)
+    provider = released = updated = None
+    meta = re.search(r"^([^\n·]+) · (\d{4}-\d{2}-\d{2}) 发布 · (\d{1,2}/\d{1,2} \d{2}:\d{2}) 更新$",
+                     text, re.M)
+    if meta:
+        provider = meta.group(1).strip()
+        released = meta.group(2) + " 发布"
+        updated = meta.group(3)
+
+    overall_score = overall_rank = coverage = None
+    score_line = re.search(
+        r"AIHOT 评分 · 综合\s+([\d.]+) 分\s+综合第 (\d+) 名[^\d]*评测覆盖 (\d+) ?%", text)
+    if score_line:
+        overall_score = float(score_line.group(1))
+        overall_rank = int(score_line.group(2))
+        coverage = int(score_line.group(3))
+
+    context_window = None
+    m = re.search(r"上下文窗口\s+(\S+ Token)", text)
+    if m:
+        context_window = m.group(1)
+
+    input_price = output_price = cache_price = original_usd = None
+    price = re.search(
+        r"API 输入 / 输出 · 每百万 Token\s+(¥\S+) / (\S+)\s+缓存 (¥\S+)[^$]*原价 (.+?) 厂商官方价格",
+        text)
+    if price:
+        input_price, output_price, cache_price, original_usd = price.groups()
+        original_usd = original_usd.strip()
+
+    cards = []
+    for anchor in re.finditer(r'<a[^>]*href="/leaderboard/category/(\w+)"[^>]*>(.*?)</a>', main, re.S):
+        body = plain_text(anchor.group(2))
+        if "AIHOT 评分" not in body:
+            continue
+        m = re.search(r"AIHOT 评分\s+([\d.]+) 分\s+第 (\d+) 名\s+(\d+) 项评测 · 覆盖 (\d+) ?%", body)
+        if not m:
+            continue
+        cards.append({
+            "category": anchor.group(1),
+            "score": float(m.group(1)),
+            "rank": int(m.group(2)),
+            "eval_count": int(m.group(3)),
+            "coverage": int(m.group(4)),
+        })
+
+    groups = []
+    marker = main.find("BEHIND THE SCORE")
+    section = main[marker:] if marker >= 0 else ""
+    tokens = re.finditer(
+        r'(<h3[^>]*>.*?</h3>)|(<li class="card[^"]*"[^>]*>.*?</li>)', section, re.S)
+    current = None
+    for token in tokens:
+        if token.group(1):
+            heading_text = lb_collapse_spaces(plain_text(token.group(1)).strip())
+            m = re.match(r"^(编程|科研|专业办公|知识问答|真人盲选) ([\d.]+) ?(\d+) 项$", heading_text)
+            if not m:
+                continue
+            current = {
+                "heading": m.group(1),
+                "category": LB_HEADING_TO_CATEGORY.get(m.group(1)),
+                "score": float(m.group(2)),
+                "eval_count": int(m.group(3)),
+                "items": [],
+            }
+            groups.append(current)
+            continue
+        if current is None:
+            continue
+        raw = token.group(2)
+        name_m = re.search(r'text-\[13\.5px\] font-semibold text-ink">([^<]+)</span>', raw)
+        if not name_m:
+            continue
+        benchmark_name = lb_collapse_spaces(plain_text(name_m.group(1)).strip())
+
+        source = None
+        source_m = re.search(r'<small class="text-\[11px\] text-ink-4">(.*?)</small>', raw, re.S)
+        if source_m:
+            value = lb_collapse_spaces(plain_text(source_m.group(1)).strip())
+            source = value or None
+
+        score_text = None
+        score_m = re.search(
+            r'mono block text-\[19px\] font-medium leading-tight text-ink">([^<]+)</span>', raw)
+        if score_m:
+            score_text = score_m.group(1).strip() or None
+
+        converted = None
+        converted_m = re.search(r"折算分(.*?)</span></span>", raw, re.S)
+        if converted_m:
+            value = lb_collapse_spaces(plain_text(converted_m.group(1)).strip())
+            converted = value or None
+
+        current["items"].append({
+            "name": benchmark_name,
+            "source": source,
+            "score_text": score_text,
+            "converted": converted,
+        })
+
+    return {
+        "name": name,
+        "provider": provider,
+        "released": released,
+        "updated": updated,
+        "overall_score": overall_score,
+        "overall_rank": overall_rank,
+        "coverage": coverage,
+        "context_window": context_window,
+        "input_price": input_price,
+        "output_price": output_price,
+        "cache_price": cache_price,
+        "original_usd": original_usd,
+        "cards": cards,
+        "groups": groups,
+    }
+
+
+# --------------------------------------------------------------------------
 # 断言（全部以夹具为准）
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
@@ -2044,6 +2284,127 @@ def run():
              [{"type": "paragraph", "text": "a | b"}, {"type": "rule"}],
              "没有前导 | 的「a | b」+「---」不是表格")
     check_eq(markdown_blocks(""), [], "空文没有块")
+
+    print("")
+    print("== 镜像 17：模型榜页面解析（LeaderboardParser）==")
+    # 断言全部从三份夹具字节推导（与 AIHOTTests/LeaderboardParserTests.swift 一致）。
+    board = lb_parse_board(fixture_text("leaderboard-overall.html"), "overall")
+    check(board is not None, "综合榜解析成功")
+    if board:
+        check_eq(len(board["models"]), 30, "综合榜 30 行")
+        check_eq(board["eval_total"], 35, "页头 35 项评测")
+        check_eq(board["institutions"], 7, "页头 7 家机构")
+        check_eq(board["updated"], "10/20 09:12", "页头更新时间")
+        first = board["models"][0]
+        check_eq(first["rank"], 1, "首行名次 1")
+        check_eq(first["slug"], "claude-opus-5-5", "首行 slug")
+        check_eq(first["name"], "Claude Opus 5.5", "首行模型名")
+        check_eq(first["provider"], "Anthropic", "首行厂商")
+        check_eq(first["released"], "2026-09-22", "首行上线日期")
+        check_eq(first["eval_count"], 34, "首行 34 项评测")
+        check_eq(first["coverage"], 96, "首行覆盖 96%")
+        check_eq(first["cache_price"], "¥1.34", "首行缓存价")
+        check_eq(first["input_price"], "¥26.72", "首行输入价")
+        check_eq(first["output_price"], "¥133.61", "首行输出价")
+        check_eq(first["score"], 73.8, "首行评分 73.8")
+        last = board["models"][29]
+        check_eq(last["rank"], 30, "末行名次 30")
+        check_eq(last["slug"], "claude-sonnet-5", "末行 slug")
+        check_eq(last["score"], 59.1, "末行评分 59.1")
+        muse = next((m for m in board["models"] if m["slug"] == "muse-wonder-full"), None)
+        check(muse is not None, "muse-wonder-full 在榜")
+        if muse:
+            # 页面上是「待核验」→ 三档价格都是 nil，不编数字
+            check(muse["cache_price"] is None and muse["input_price"] is None
+                  and muse["output_price"] is None, "待核验 → 三档价格全 nil")
+            check_eq(muse["score"], 70.3, "待核验行仍有评分 70.3")
+
+    coding = lb_parse_board(fixture_text("leaderboard-coding.html"), "coding")
+    check(coding is not None, "编程榜解析成功")
+    if coding:
+        check_eq(len(coding["models"]), 30, "编程榜 30 行")
+        check_eq(coding["eval_total"], 9, "编程榜页头 9 项评测")
+        check_eq(coding["institutions"], 3, "编程榜页头 3 家机构")
+        cfirst = coding["models"][0]
+        check_eq(cfirst["slug"], "claude-opus-5-5", "编程榜首行 slug")
+        check_eq(cfirst["eval_count"], 8, "编程榜首行 8 项评测")
+        check_eq(cfirst["coverage"], 86, "编程榜首行覆盖 86%")
+        check_eq(cfirst["score"], 74.3, "编程榜首行评分 74.3")
+        check_eq(coding["models"][29]["slug"], "gpt-5-6-luna", "编程榜末行 slug")
+        check_eq(coding["models"][29]["score"], 59.2, "编程榜末行评分 59.2")
+
+    detail = lb_parse_detail(fixture_text("leaderboard-detail.html"))
+    check(detail is not None, "详情页解析成功")
+    if detail:
+        check_eq(detail["name"], "Claude Opus 5.5", "详情 h1")
+        check_eq(detail["provider"], "Anthropic", "详情厂商")
+        check_eq(detail["released"], "2026-09-22 发布", "详情发布行")
+        check_eq(detail["updated"], "10/20 09:12", "详情更新时间")
+        check_eq(detail["overall_score"], 73.8, "综合评分 73.8")
+        check_eq(detail["overall_rank"], 1, "综合第 1 名")
+        check_eq(detail["coverage"], 96, "评测覆盖 96%")
+        check_eq(detail["context_window"], "100万 Token", "上下文窗口原文")
+        check_eq(detail["input_price"], "¥26.72", "详情输入价")
+        check_eq(detail["output_price"], "¥133.61", "详情输出价")
+        check_eq(detail["cache_price"], "¥1.34", "详情缓存价")
+        check_eq(detail["original_usd"], "$4 / $20", "原价原文")
+        check_eq(len(detail["cards"]), 4, "四张领域卡")
+        dcoding = next((c for c in detail["cards"] if c["category"] == "coding"), None)
+        check(dcoding is not None, "编程卡在")
+        if dcoding:
+            check_eq(dcoding["score"], 74.3, "编程卡评分")
+            check_eq(dcoding["rank"], 1, "编程卡名次")
+            check_eq(dcoding["eval_count"], 8, "编程卡 8 项评测")
+            check_eq(dcoding["coverage"], 86, "编程卡覆盖 86%")
+        know = next((c for c in detail["cards"] if c["category"] == "knowledge"), None)
+        check(know is not None and know["rank"] == 5, "知识问答卡第 5 名")
+
+        check_eq(len(detail["groups"]), 5, "五个成绩分组")
+        total_items = sum(len(g["items"]) for g in detail["groups"])
+        check_eq(total_items, 35, "逐项共 35 项（35 项评测对得上页头）")
+        gcoding = next((g for g in detail["groups"] if g["category"] == "coding"), None)
+        check(gcoding is not None, "编程分组在")
+        if gcoding:
+            check_eq(gcoding["heading"], "编程", "编程分组标题")
+            check_eq(gcoding["score"], 74.3, "编程分组分")
+            check_eq(gcoding["eval_count"], 8, "编程分组 8 项")
+            check_eq(len(gcoding["items"]), 8, "编程分组 8 行")
+            first_item = gcoding["items"][0]
+            check_eq(first_item["name"], "ProgramBench", "ProgramBench 名字")
+            check_eq(first_item["source"], "Vals AI 旧型号作答 12%", "ProgramBench 出处")
+            check_eq(first_item["score_text"], "18.5%", "ProgramBench 原始成绩")
+            check_eq(first_item["converted"], "108.1", "ProgramBench 折算分")
+        blind = next((g for g in detail["groups"] if g["heading"] == "真人盲选"), None)
+        check(blind is not None and blind["category"] is None, "真人盲选不在分类榜里（category nil）")
+        if blind:
+            check_eq(len(blind["items"]), 1, "盲选 1 项")
+            check_eq(blind["items"][0]["name"], "Arena Text", "盲选项目名")
+            check_eq(blind["items"][0]["score_text"], "1,508.2", "盲选成绩原文（千分位保真）")
+        gknow = next((g for g in detail["groups"] if g["category"] == "knowledge"), None)
+        check(gknow is not None, "知识问答分组在")
+        if gknow:
+            # 名字前有字母徽章（P）的条目：名字不能被劈成徽章
+            bullshit = next((b for b in gknow["items"] if "BullshitBench" in b["name"]), None)
+            check(bullshit is not None, "BullshitBench 在知识问答组")
+            if bullshit:
+                check_eq(bullshit["name"], "BullshitBench v2", "字母徽章不进名字")
+                check_eq(bullshit["source"], "BullshitBench", "BullshitBench 出处")
+                check_eq(bullshit["score_text"], "62.0%", "BullshitBench 成绩")
+        gpro = next((g for g in detail["groups"] if g["category"] == "professional"), None)
+        check(gpro is not None, "专业办公分组在")
+        if gpro:
+            harvey = next((b for b in gpro["items"] if b["name"].startswith("Harvey")), None)
+            check(harvey is not None, "Harvey 在专业办公组")
+            if harvey:
+                check_eq(harvey["converted"], "至多 55.1", "折算分带「至多」前缀")
+
+    # 边界
+    check(lb_parse_board("", "overall") is None, "空 HTML 无榜")
+    check(lb_parse_board("<html><body>完全不是榜单</body></html>", "overall") is None,
+          "非榜单页无行 → nil")
+    check(lb_parse_detail("") is None, "空 HTML 无详情")
+    check(lb_parse_detail("<html><body><h1>只有名字</h1></body></html>") is not None,
+          "只有 h1 也能出详情（其余字段全 nil，UI 各自显灰）")
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)

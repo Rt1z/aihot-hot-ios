@@ -139,6 +139,23 @@ final class AIHOTAPI: @unchecked Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// 模型榜页面 HTML（榜页 path 见 `LeaderboardCategory.path`，详情页传
+    /// `/leaderboard/<slug>`）。榜单没有公开 JSON 接口，只能整页抓回来解析。
+    ///
+    /// - Note: 这些页面 `s-maxage` ≈ 300/600 且没有 ETag —— 上层按 300s 节流，
+    ///   这里不做条件请求。
+    func leaderboardHTML(path: String) async throws -> String {
+        var request = URLRequest(url: url(for: path))
+        request.httpMethod = "GET"
+        request.setValue(AIHOTAPI.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+
+        let (data, response) = try await perform(request)
+        try validate(response: response, data: data)
+        return String(decoding: data, as: UTF8.self)
+    }
+
     // MARK: - 内部
 
     private func url(for path: String) -> URL {
