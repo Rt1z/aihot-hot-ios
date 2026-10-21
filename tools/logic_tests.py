@@ -1642,6 +1642,18 @@ def report_group_by_month(entries):
     return groups
 
 
+def report_entry_kind(entry):
+    """往期条目属于哪个栏目。往期区块有自己的切换，条目从哪一栏来只看它自己
+    —— 用分段控件当前那一栏会拿周报的期号去打月报端点。
+    week 优先：两个键都有时按 week 算（实测索引不会同时给，但顺序要钉住）。
+    """
+    if entry.get("week") is not None:
+        return "weekly"
+    if entry.get("month") is not None:
+        return "monthly"
+    return None
+
+
 # --------------------------------------------------------------------------
 # 镜像 19：运行诊断的地址脱敏与 Tab 角标（DiagnosticReport / ReportUnread）
 # --------------------------------------------------------------------------
@@ -2558,6 +2570,14 @@ def run():
     check(all(e["links"] and e["links"].get("aihot") for e in idx["items"]),
           "每条往期都有 links.aihot（网页版契约）")
     check(all(e.get("headline") for e in idx["items"]), "每条往期都有 headline")
+
+    # --- 往期条目的栏目归属（详情页按它取数，认错就是打错接口） ---
+    check(all(report_entry_kind(e) == "weekly" for e in idx["items"]),
+          "周报索引每条都认成 weekly")
+    check_eq(report_entry_kind({"week": None, "month": "2026-09"}), "monthly",
+             "月报条目认成 monthly")
+    check_eq(report_entry_kind({"week": None, "month": None}), None,
+             "两个键都没有 → 认不出就不瞎猜")
 
     # --- 老期次的 null（可选性的回归钉） ---
     old = fixture_json("report-weekly-older.json")["report"]

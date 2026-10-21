@@ -65,6 +65,33 @@ final class ReportDecodingTests: XCTestCase {
         // 「网页版」契约：每条往期都要有回链；headline 都在（行文案靠它）
         XCTAssertTrue(envelope.items.allSatisfy { $0.links?.aihot != nil })
         XCTAssertTrue(envelope.items.allSatisfy { $0.headline != nil })
+
+        // 周报索引里每条都得认成 weekly —— 详情页按这个去取数，认错就是打错接口
+        XCTAssertTrue(envelope.items.allSatisfy { $0.kind == .weekly })
+    }
+
+    // MARK: - 往期条目的栏目归属
+
+    /// 往期区块有自己的切换（不跟着分段控件走），所以条目从哪一栏来**只能看它自己**：
+    /// 用分段当前值会拿周报的期号去打月报端点。
+    /// 没有月报索引夹具（官网只给全量、抓一份就够），所以月报那条直接构造。
+    func testEntryKindIsDerivedFromItsOwnPeriodKey() {
+        let weekly = ReportEntry(
+            week: "2026-W41", month: nil, periodStart: nil, periodEnd: nil,
+            generatedAt: nil, headline: nil, links: nil, attribution: nil
+        )
+        let monthly = ReportEntry(
+            week: nil, month: "2026-09", periodStart: nil, periodEnd: nil,
+            generatedAt: nil, headline: nil, links: nil, attribution: nil
+        )
+        let broken = ReportEntry(
+            week: nil, month: nil, periodStart: nil, periodEnd: nil,
+            generatedAt: nil, headline: nil, links: nil, attribution: nil
+        )
+
+        XCTAssertEqual(weekly.kind, .weekly)
+        XCTAssertEqual(monthly.kind, .monthly)
+        XCTAssertNil(broken.kind, "两个键都没有是数据坏；认不出就不该瞎猜")
     }
 
     // MARK: - 老期次的 null（可选性的回归钉）

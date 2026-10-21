@@ -4,12 +4,13 @@ import SwiftUI
 ///
 /// `overview`/`sections[].summary` 为 nil 时整块省略、不留占位（老期次真的没有，
 /// 规则 19）；分栏 `label` 原样渲染不归一化（老期是主题句、新期是分类名）。
+///
+/// 分栏标题对齐官网那一版「01 / 模型发布/更新」：编号 + 加粗的名字，
+/// 而不是 `SectionTitle` 那种 13pt 灰字（那个是给模型榜与往期分组用的，
+/// 在这里太不显眼，改它又会连带改坏那些页 —— 所以另起一个组件）。
 struct ReportIssueView: View {
 
     let report: PeriodReport
-    /// 弹窗状态留在宿主视图（两处各自持 sheet identity 会打架），
-    /// 这里只负责把「要开哪个链接」抛出去。
-    let onOpenLink: (WebLinkSheet) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.cardSpacing) {
@@ -34,8 +35,8 @@ struct ReportIssueView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ForEach(report.sections.indices, id: \.self) { index in
-                sectionView(report.sections[index])
+            ForEach(report.sections.indices, id: \.self) { sectionIndex in
+                sectionView(report.sections[sectionIndex], number: sectionIndex + 1)
             }
         }
         .padding(.top, 4)
@@ -53,76 +54,115 @@ struct ReportIssueView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private func sectionView(_ section: PeriodReport.Section) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(text: section.label)
+    private func sectionView(_ section: PeriodReport.Section, number: Int) -> some View {
+        // 老期次的 summary 真的是 nil（规则 19）；空串也当没有，不留占位
+        let summary: String? = (section.summary ?? "").isEmpty ? nil : section.summary
+        return VStack(alignment: .leading, spacing: 8) {
+            ReportSectionHeader(number: number, label: section.label)
 
-            if let summary = section.summary, !summary.isEmpty {
-                Text(summary)
-                    .font(.system(size: 13))
-                    .foregroundColor(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            // 标题之外什么都没有的分栏不画卡片（一条空框框比整块省略更难看）
+            if summary != nil || !section.items.isEmpty {
+                VStack(spacing: 0) {
+                    if let summary = summary {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("本版导读")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Theme.accent)
+                            Text(summary)
+                                .font(.system(size: 13))
+                                .foregroundColor(Theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
 
-            VStack(spacing: 0) {
-                ForEach(section.items.indices, id: \.self) { index in
-                    ReportItemRow(item: section.items[index], onOpenLink: onOpenLink)
-                    if index < section.items.count - 1 {
-                        Hairline().padding(.leading, 14)
+                        if !section.items.isEmpty {
+                            Hairline()
+                        }
+                    }
+
+                    ForEach(section.items.indices, id: \.self) { itemIndex in
+                        ReportItemRow(item: section.items[itemIndex])
+                        if itemIndex < section.items.count - 1 {
+                            Hairline().padding(.leading, 14)
+                        }
                     }
                 }
+                .cardBackground()
             }
-            .cardBackground()
         }
     }
 }
 
-/// 一条条目：标题 + 摘要 + 「来源 · 时间」，整行可点 ——
-/// 优先原文（阅读器，规则 14），其次站内条目页（网页），都没有则不可点（不编造链接）。
+/// 一块分栏的标题：`01` + 分栏名（官网的「模型发布/更新」那种）。
+///
+/// 编号复用 `Typography.rankSmall`（13pt 粗体等宽）—— 榜单名次用的就是它，
+/// 等宽数字让「01/02/10」对齐；名字比正文大一号、加粗、用主文字色。
+struct ReportSectionHeader: View {
+
+    let number: Int
+    let label: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(String(format: "%02d", number))
+                .font(Typography.rankSmall)
+                .foregroundColor(Theme.accent)
+
+            Text(label)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
+    }
+}
+
+/// 一条条目：标题 + 摘要 + 「来源 · 时间」，整行推入 `ReportItemDetailView`
+/// —— 链接与阅读器都在那一页里决定（本行不再自己开弹窗）。
 private struct ReportItemRow: View {
 
     let item: PeriodReport.Item
-    let onOpenLink: (WebLinkSheet) -> Void
-
-    private var originalURL: URL? {
-        item.links?.original.flatMap { URL(string: $0) }
-    }
-
-    private var aihotURL: URL? {
-        item.links?.aihot.flatMap { URL(string: $0) }
-    }
-
-    private var isOpenable: Bool { originalURL != nil || aihotURL != nil }
 
     var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.title)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(Theme.textPrimary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if let summary = item.summary, !summary.isEmpty {
-                    Text(summary)
-                        .font(.system(size: 13))
-                        .foregroundColor(Theme.textSecondary)
-                        .lineLimit(3)
+        NavigationLink(value: item) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.title)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Theme.textPrimary)
+                        .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    if let summary = item.summary, !summary.isEmpty {
+                        Text(summary)
+                            .font(.system(size: 13))
+                            .foregroundColor(Theme.textSecondary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if let meta = metaLine {
+                        Text(meta)
+                            .font(Typography.meta)
+                            .foregroundColor(Theme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
-                if let meta = metaLine {
-                    Text(meta)
-                        .font(Typography.meta)
-                        .foregroundColor(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.textTertiary)
+                    .padding(.top, 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!isOpenable)
         .padding(14)
     }
 
@@ -135,15 +175,5 @@ private struct ReportItemRow: View {
             parts.append(RelativeTime.absoluteShort(published))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    private func open() {
-        if let url = originalURL {
-            // 原文走系统阅读器；「网页版」逃生口在宿主视图的页脚/顶栏
-            onOpenLink(WebLinkSheet(url: url, entersReader: true))
-        } else if let url = aihotURL {
-            // 站内条目页是网页应用没有正文，阅读器无意义 —— 永远走网页（规则 14）
-            onOpenLink(WebLinkSheet(url: url))
-        }
     }
 }

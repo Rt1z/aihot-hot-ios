@@ -17,7 +17,7 @@ struct ReportDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Metrics.cardSpacing) {
                 if let report = report {
-                    ReportIssueView(report: report) { webLink = $0 }
+                    ReportIssueView(report: report)
                 } else if isLoading {
                     ForEach(0..<3, id: \.self) { _ in
                         SkeletonCard()

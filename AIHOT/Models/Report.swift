@@ -125,4 +125,11 @@ struct ReportEntry: Codable, Equatable, Hashable, Identifiable {
 
     var id: String { week ?? month ?? "" }
     var periodKey: String? { week ?? month }
+    /// 这条往期属于哪个栏目。往期区块有自己独立的切换，索引条目从哪一栏
+    /// 来不再等于分段控件当前那一栏 —— 详情页要按**条目自己**的栏去取数。
+    var kind: ReportKind? {
+        if week != nil { return .weekly }
+        if month != nil { return .monthly }
+        return nil
+    }
 }
