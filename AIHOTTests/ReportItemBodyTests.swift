@@ -228,8 +228,9 @@ final class ReportItemBodyTests: XCTestCase {
     }
 
     /// 页内锚点（`#footnote-1`）在我们这里没有落点：文字保留，不做成点不开的死链接。
+    /// 分隔符用 `##`：单个 `#` 的原始字符串会被内容里的 `"#` 提前收口。
     func testFragmentOnlyHrefIsNotALink() {
-        let runs = ReportItemBody.inlineRuns(#"脚注<a href="#footnote-1">1</a>结束"#)
+        let runs = ReportItemBody.inlineRuns(##"脚注<a href="#footnote-1">1</a>结束"##)
         XCTAssertEqual(runs.count, 1)
         XCTAssertEqual(runs[0].text, "脚注1结束")
         XCTAssertNil(runs[0].url)
