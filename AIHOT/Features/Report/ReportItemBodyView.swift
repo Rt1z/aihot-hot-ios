@@ -68,6 +68,10 @@ struct ReportItemBodyView: View {
             if let url = run.url {
                 // Foundation 的 link 属性：`Text` 认它，于是链接能内联折行又能点
                 piece.link = url
+                // 显式上色：`Text` 上的 .foregroundColor(Theme.textPrimary) 会盖掉
+                // 「靠 tint 渲染出来的链接色」，不上色的话链接与正文一模一样、
+                // 根本看不出哪里能点（正文里的链接是主要导航，必须一眼可辨）
+                piece.foregroundColor = Theme.accent
             }
             result.append(piece)
         }

@@ -159,22 +159,80 @@ final class ReportItemBodyTests: XCTestCase {
     }
 
     /// 链接与加粗在一段里交替，实体要解码，相邻同样式的片段要合并。
+    /// **开标签也是结算点**：锚点前的文字不算链接、加粗前的文字不算粗，
+    /// 片段之间的分隔空格必须留住（曾经锚点吞掉前文、空格被裁、整句粘连）。
     func testInlineRunsHandleNestedLinkBoldAndEntities() throws {
         let html = #"<div class="prose"><p>见 <a href="https://x.com/a?b=1&amp;c=2"><b>这里</b></a> 与 <b>结论</b>。</p></div>"#
         let blocks = try XCTUnwrap(ReportItemBody.parse(html: html))
         guard case .paragraph(let runs) = blocks[0] else {
             return XCTFail("第一块不是段落")
         }
-        XCTAssertEqual(runs.count, 3)
-        XCTAssertEqual(runs[0].text, "见 这里")
-        XCTAssertEqual(runs[0].url?.absoluteString, "https://x.com/a?b=1&c=2")
-        XCTAssertTrue(runs[0].bold)
-        XCTAssertEqual(runs[1].text, "与 结论")
-        XCTAssertNil(runs[1].url)
+        XCTAssertEqual(runs.count, 5)
+        XCTAssertEqual(runs[0].text, "见 ")
+        XCTAssertNil(runs[0].url)
+        XCTAssertFalse(runs[0].bold)
+        XCTAssertEqual(runs[1].text, "这里")
+        XCTAssertEqual(runs[1].url?.absoluteString, "https://x.com/a?b=1&c=2")
         XCTAssertTrue(runs[1].bold)
-        XCTAssertEqual(runs[2].text, "。")
+        XCTAssertEqual(runs[2].text, " 与 ")
         XCTAssertNil(runs[2].url)
         XCTAssertFalse(runs[2].bold)
+        XCTAssertEqual(runs[3].text, "结论")
+        XCTAssertNil(runs[3].url)
+        XCTAssertTrue(runs[3].bold)
+        XCTAssertEqual(runs[4].text, "。")
+        XCTAssertNil(runs[4].url)
+        XCTAssertFalse(runs[4].bold)
+        // 拼回纯文本要与页面可见文字一字不差
+        XCTAssertEqual(ReportItemBody.plainText(runs: runs), "见 这里 与 结论。")
+    }
+
+    /// 回归：锚点只覆盖锚点自己的文字 —— 修之前「发布 」被吸进链接、
+    /// 锚点后的标点又因两端裁剪粘在链接上（google 夹具 42 个锚点几乎每段都这样）。
+    func testLinkRunDoesNotAbsorbSurroundingText() {
+        let runs = ReportItemBody.inlineRuns(
+            #"发布 <a href="https://x.com/a">Gemini 4 Argon</a>，面向复杂任务。"#)
+        XCTAssertEqual(runs.count, 3)
+        XCTAssertEqual(runs[0].text, "发布 ")
+        XCTAssertNil(runs[0].url)
+        XCTAssertEqual(runs[1].text, "Gemini 4 Argon")
+        XCTAssertEqual(runs[1].url?.absoluteString, "https://x.com/a")
+        XCTAssertEqual(runs[2].text, "，面向复杂任务。")
+        XCTAssertNil(runs[2].url)
+    }
+
+    /// 回归（真实夹具）：google 那段以链接开头的正文 —— 链接 run 不吞后面的
+    /// 普通文字，分隔空格保留，`&amp;` 在 URL 里解成 `&`。
+    func testGoogleLinkRunsExcludeAdjacentPlainText() throws {
+        var pinned = false
+        for block in try parsed("google") {
+            guard case .paragraph(let runs) = block,
+                  runs.first?.url?.absoluteString.hasPrefix("https://blog.google/") == true,
+                  runs.count > 4 else { continue }
+            pinned = true
+            XCTAssertEqual(runs[0].text, "Gemini 4 Argon")
+            XCTAssertEqual(runs[1].text, " 今日起面向全球开发者与企业开放，可通过 ")
+            XCTAssertNil(runs[1].url)
+            XCTAssertEqual(runs[2].text, "AI Studio")
+            XCTAssertEqual(runs[3].text, " 和 ")
+            XCTAssertNil(runs[3].url)
+            XCTAssertEqual(runs[4].text, "Gemini 平台")
+            XCTAssertTrue(runs[4].url?.absoluteString.hasPrefix(
+                "https://console.cloud.google.com/agent-platform/studio/multimodal;mode=prompt"
+            ) == true)
+            XCTAssertTrue(runs[4].url?.absoluteString.contains("region=global") == true,
+                          "`&amp;` 要解成 `&`")
+            break
+        }
+        XCTAssertTrue(pinned, "google 夹具里那段以 Gemini 4 Argon 开头的正文不见了")
+    }
+
+    /// 页内锚点（`#footnote-1`）在我们这里没有落点：文字保留，不做成点不开的死链接。
+    func testFragmentOnlyHrefIsNotALink() {
+        let runs = ReportItemBody.inlineRuns(#"脚注<a href="#footnote-1">1</a>结束"#)
+        XCTAssertEqual(runs.count, 1)
+        XCTAssertEqual(runs[0].text, "脚注1结束")
+        XCTAssertNil(runs[0].url)
     }
 
     /// `<br>` 只是排版，折成一个空格，不许把一段劈成两段。
@@ -201,8 +259,16 @@ final class ReportItemBodyTests: XCTestCase {
 
         let xaiItems = try XCTUnwrap(firstBullets(try parsed("xai")), "xai 正文里没有列表")
         XCTAssertEqual(xaiItems.count, 4)
+        // 原文是 `<strong>Grok</strong> 支持聊天…` —— 加粗段后面的分隔空格是页面上
+        // 的真实文字（旧解析器在 `</strong>` 处裁掉了它，「Grok支持」粘在一起）
         XCTAssertEqual(ReportItemBody.plainText(runs: xaiItems[0]),
-                       "Grok支持聊天、语音以及图像和视频生成。")
+                       "Grok 支持聊天、语音以及图像和视频生成。")
+        XCTAssertEqual(xaiItems[0].count, 2)
+        XCTAssertEqual(xaiItems[0][0].text, "Grok")
+        XCTAssertTrue(xaiItems[0][0].bold)
+        XCTAssertNil(xaiItems[0][0].url)
+        XCTAssertEqual(xaiItems[0][1].text, " 支持聊天、语音以及图像和视频生成。")
+        XCTAssertFalse(xaiItems[0][1].bold)
     }
 
     // MARK: - 顺序

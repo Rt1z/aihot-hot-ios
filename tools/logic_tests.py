@@ -1825,16 +1825,27 @@ def item_href(raw):
     match = re.search(r'href\s*=\s*["\']([^"\']+)["\']', raw, re.I)
     if match is None:
         return None
-    return item_decode_entities(match.group(1))
+    value = item_decode_entities(match.group(1))
+    # 只认绝对 http(s)：`#脚注` 这类页内锚点在渲染层没有落点，做成链接就是死链
+    # （文字照常保留 —— 同 Swift 侧 `href(from:)` 的纪律）
+    if urlsplit(value).scheme.lower() not in ("http", "https"):
+        return None
+    return value
 
 
 def item_inline_runs(html):
-    """一趟扫描切出 (text, url, bold) 片段；相邻同样式的片段会合并。"""
+    """一趟扫描切出 (text, url, bold) 片段；相邻同样式的片段会合并。
+
+    **开标签也是结算点**：`<a>`/`<b>` 的开标签会改变后续文字的样式，若只在
+    闭合处结算，锚点之前那段普通文字就会被并进链接（真机上一整句变链接色）。
+    片段之间 HTML 里的分隔空格要留着，只有整组片段的两端才裁（那是缩进）。
+    """
     runs = []
     state = {"url": None, "bold": 0, "plain": ""}
 
     def flush():
-        text = item_collapse_spaces(item_decode_entities(state["plain"]))
+        # 只折叠空白、不裁剪两端：片段之间的空格是词与词的分隔符
+        text = re.sub(r"\s+", " ", item_decode_entities(state["plain"]))
         state["plain"] = ""
         if not text:
             return
@@ -1859,14 +1870,11 @@ def item_inline_runs(html):
         name = item_tag_name(raw)
         closing = item_is_closing(raw)
         if name == "a":
-            if closing:
-                flush()
-                state["url"] = None
-            else:
-                state["url"] = item_href(raw)
+            flush()                               # 开/闭都先结算，再改 url
+            state["url"] = None if closing else item_href(raw)
         elif name in ("b", "strong"):
+            flush()
             if closing:
-                flush()
                 state["bold"] = max(0, state["bold"] - 1)
             else:
                 state["bold"] += 1
@@ -1875,6 +1883,19 @@ def item_inline_runs(html):
         cursor = gt + 1
     state["plain"] += html[cursor:]
     flush()
+    # HTML 缩进造成的首尾空白不是内容：两端各裁一次，中间的分隔空格留着
+    if runs and runs[0][0][:1].isspace():
+        rest = runs[0][0].lstrip()
+        if rest:
+            runs[0] = (rest, runs[0][1], runs[0][2])
+        else:
+            runs.pop(0)
+    if runs and runs[-1][0][-1:].isspace():
+        rest = runs[-1][0].rstrip()
+        if rest:
+            runs[-1] = (rest, runs[-1][1], runs[-1][2])
+        else:
+            runs.pop()
     return runs
 
 
@@ -3077,8 +3098,13 @@ def run():
     check_eq(item_plain_text(item_google_bullets[1][0]), "为解决你最棘手的问题而打造",
              "google 目录首项")
     check_eq(len(item_xai_bullets[1]), 4, "xai 套餐要点有 4 项")
-    check_eq(item_plain_text(item_xai_bullets[1][0]), "Grok支持聊天、语音以及图像和视频生成。",
-             "xai 要点首项")
+    # 原文是 `<strong>Grok</strong> 支持聊天…` —— 加粗段后面的分隔空格是页面上的
+    # 真实文字（旧解析器在 </strong> 处裁掉了它，「Grok支持」粘在一起）
+    check_eq(item_plain_text(item_xai_bullets[1][0]), "Grok 支持聊天、语音以及图像和视频生成。",
+             "xai 要点首项：加粗边界两侧的文字与空格都照原文")
+    check_eq(item_xai_bullets[1][0],
+             [("Grok", None, True), (" 支持聊天、语音以及图像和视频生成。", None, False)],
+             "加粗 run 只覆盖 <strong> 里的文字")
     # 首项本身就是一条站内链接（`<li><a …>`），片段要带着 URL
     check(item_google_bullets[1][0][0][1] is not None,
           "google 目录首项带链接")
@@ -3125,14 +3151,47 @@ def run():
     check_eq(len(item_parse(
         '<div class="prose"><div class="x"><p>在嵌套里</p></div><p>外面</p></div>')),
         2, "嵌套 div 不会把正文切断")
-    # 行内：链接与加粗交替，实体要解码，URL 要带着
+    # 行内：链接与加粗交替，实体要解码；**开标签也要结算** —— 锚点前的文字不算链接、
+    # 分隔空格要留住（两端的 HTML 缩进另由 trimBlockEdges 裁掉）
     item_edge = item_parse(
         '<div class="prose"><p>见 <a href="https://x.com/a?b=1&amp;c=2"><b>这里</b></a>'
         ' 与 <b>结论</b>。</p><p>[[duration]] 分钟</p><p>正文</p></div>')
     check_eq(item_edge[0][1],
-             [("见 这里", "https://x.com/a?b=1&c=2", True),
-              ("与 结论", None, True), ("。", None, False)],
-             "链接/加粗交替 + `&amp;` 解码 + 相邻同样式合并")
+             [("见 ", None, False),
+              ("这里", "https://x.com/a?b=1&c=2", True),
+              (" 与 ", None, False),
+              ("结论", None, True),
+              ("。", None, False)],
+             "链接/加粗交替 + `&amp;` 解码 + 锚点前文字不算链接 + 分隔空格保留")
+    check_eq(item_plain_text(item_edge[0][1]), "见 这里 与 结论。",
+             "拼回纯文本与页面可见文字一致")
+    # 回归：锚点只覆盖锚点自己的文字（修之前「发布 」被吸进链接、
+    # 锚点后的逗号又因裁剪粘在链接上）
+    check_eq(item_inline_runs('发布 <a href="https://x.com/a">Gemini 4 Argon</a>，面向复杂任务。'),
+             [("发布 ", None, False), ("Gemini 4 Argon", "https://x.com/a", False),
+              ("，面向复杂任务。", None, False)],
+             "锚点前后的正文既不被吞也不粘连")
+    # 回归：页内锚点（#脚注）没有落点 —— 文字保留，与前后同样式自动合并成一个片段
+    check_eq(item_inline_runs('脚注<a href="#footnote-1">1</a>结束'),
+             [("脚注1结束", None, False)],
+             "fragment-only href 被拒，不再做成点不开的死链接")
+    # 回归（真实夹具）：google 那段以链接开头的正文，链接 run 不吞后面的普通文字
+    item_google_link_para = None
+    for item_block in item_google:
+        if item_block[0] == "paragraph" and item_block[1] and \
+                (item_block[1][0][1] or "").startswith("https://blog.google/"):
+            item_google_link_para = item_block[1]
+            break
+    check(item_google_link_para is not None, "google 夹具里找到以链接开头的段落")
+    check_eq([r[0] for r in item_google_link_para[:5]],
+             ["Gemini 4 Argon", " 今日起面向全球开发者与企业开放，可通过 ", "AI Studio",
+              " 和 ", "Gemini 平台"],
+             "链接 run 只覆盖锚点自己的文字，分隔空格保留")
+    check(item_google_link_para[1][1] is None and item_google_link_para[3][1] is None,
+          "锚点之间的普通文字没有 URL")
+    check(item_google_link_para[4][1].startswith("https://console.cloud.google.com/")
+          and "region=global" in item_google_link_para[4][1],
+          "锚点自己的 URL 带着解码过的 &（`&amp;` → `&`）")
     check_eq([b[0] for b in item_edge], ["paragraph", "paragraph"],
              "模板变量那段被滤掉，只剩两段")
     # 空段与纯空白段也滤掉（`<p></p>` 是渲染器留下的空壳）

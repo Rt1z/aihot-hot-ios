@@ -227,8 +227,11 @@ enum ReportItemBody {
 
     // MARK: - 行内片段
 
-    /// 一趟扫描，用一个栈记录「现在在不在 `<a>` / `<strong>` 里」。
-    /// 文本与标签交替出现，所以按「遇到标签就结算前面那段纯文本」来切。
+    /// 一趟扫描，用状态记录「现在在不在 `<a>` / `<b>` 里」。
+    ///
+    /// **开标签也是结算点**：`<a>`/`<b>` 的开标签会改变后续文字的样式，
+    /// 若只在闭合处结算，锚点之前那段普通文字就会被并进链接 —— 真机上一整句
+    /// 变成链接色、前后的分隔空格还被裁掉（google 夹具 42 个锚点几乎每段都这样）。
     static func inlineRuns(_ html: String) -> [Run] {
         var runs: [Run] = []
         var url: URL? = nil
@@ -236,7 +239,9 @@ enum ReportItemBody {
         var plain = ""
 
         func flush() {
-            let text = collapseSpaces(HTMLTextExtractor.decodeEntities(plain))
+            // 只折叠空白、**不裁剪两端**：片段之间的空格是词与词的分隔符，
+            // 裁掉就把词粘在一起了（块级纯文本走 `collapseSpaces`，那里裁剪才对）
+            let text = RegexUtil.replace(#"\s+"#, in: HTMLTextExtractor.decodeEntities(plain), with: " ")
             plain = ""
             guard !text.isEmpty else { return }
             // 合并相邻且样式相同的片段：`<p>a<b>b</b>c</p>` 里的 a 和 c 各自成段，
@@ -258,15 +263,13 @@ enum ReportItemBody {
 
             switch name {
             case "a":
-                if isClose {
-                    flush()
-                    url = nil
-                } else {
-                    url = href(from: raw)
-                }
+                // 开/闭都先结算：进入链接前那段文字属于**旧**样式，
+                // 闭合时这段文字属于链接 —— 两边都必须在改状态之前刷出去
+                flush()
+                url = isClose ? nil : href(from: raw)
             case "b", "strong":
+                flush()
                 if isClose {
-                    flush()
                     boldDepth = max(0, boldDepth - 1)
                 } else {
                     boldDepth += 1
@@ -281,7 +284,29 @@ enum ReportItemBody {
         }
         plain += String(html[cursor...])
         flush()
+        trimBlockEdges(&runs)
         return runs
+    }
+
+    /// HTML 缩进造成的首尾空白不是内容：整组片段**两端**各裁一次。
+    /// 中间的分隔空格在 `flush()` 里就留着了，这里不碰。
+    private static func trimBlockEdges(_ runs: inout [Run]) {
+        if let first = runs.first, first.text.first?.isWhitespace == true {
+            let rest = String(first.text.drop(while: { $0.isWhitespace }))
+            if rest.isEmpty {
+                runs.removeFirst()
+            } else {
+                runs[0] = Run(text: rest, url: first.url, bold: first.bold)
+            }
+        }
+        if let last = runs.last, last.text.last?.isWhitespace == true {
+            let rest = String(last.text.reversed().drop(while: { $0.isWhitespace }).reversed())
+            if rest.isEmpty {
+                runs.removeLast()
+            } else {
+                runs[runs.count - 1] = Run(text: rest, url: last.url, bold: last.bold)
+            }
+        }
     }
 
     // MARK: - 文本
@@ -335,7 +360,12 @@ enum ReportItemBody {
             in: String(raw),
             options: [.caseInsensitive]
         ), let value = RegexUtil.group(match, at: 1, in: String(raw)) else { return nil }
-        return URL(string: HTMLTextExtractor.decodeEntities(value))
+        // 只认绝对 http(s) 地址：`#footnote-1` 这类**页内锚点**在我们这里没有落点，
+        // 带进渲染层只会变成一个点不开的死链接（宁可少抽，不可抽错；文字照常保留）
+        guard let url = URL(string: HTMLTextExtractor.decodeEntities(value)),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else { return nil }
+        return url
     }
 
     private static func collapseSpaces(_ text: String) -> String {
