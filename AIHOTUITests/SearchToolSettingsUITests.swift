@@ -23,10 +23,11 @@ final class SearchToolSettingsUITests: XCTestCase {
         openSearchToolsSection()
     }
 
-    /// 设置 tab（第五格：热点/收藏/模型榜/周报/设置）→ 滚到「搜索工具」区块（在「AI 对话」下面一屏）。
+    /// 设置 tab（第五格：热点/周报/模型榜/收藏/设置）→ 滚到「搜索工具」区块（在「AI 对话」下面一屏）。
     private func openSearchToolsSection() {
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 15), "App 没能启动")
-        // Tab 顺序：热点 | 收藏 | 模型榜 | 周报 | 设置 —— 「设置」是第 5 个（下标 4）
+        // Tab 顺序：热点 | 周报 | 模型榜 | 收藏 | 设置 —— 「设置」是第 5 个（下标 4）。
+        // 下标只跟「设置是不是最后一个」有关，前面几个换位不用动这里。
         app.tabBars.buttons.element(boundBy: 4).tap()
         reveal(app.switches["search-toggle-serpapi"])
     }

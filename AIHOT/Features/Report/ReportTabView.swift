@@ -5,8 +5,10 @@ import SwiftUI
 /// 与模型榜相反，这里的数据走公开 JSON 接口（带 ETag、s-maxage=300，规则 19），
 /// 结构对齐 `LeaderboardView`：Tab 内自带 NavigationStack，下拉/前台/切段都会刷新。
 ///
-/// 「最新一期」跟分段控件走；「往期」是官网的**另一个**板块，所以自带一个
-/// 下拉，能独立切到另一栏（`pastKind`）。两者各拉各的、各节流各的。
+/// 「最新一期」跟分段控件走；「往期」是官网的**另一个**板块，所以下拉就摆在
+/// 分段控件**正下方**（`pastKind`），能独立切到另一栏 —— 两块本就是两个板块，
+/// 各拉各的、各节流各的。下拉不跟着往期标题走：标题说的是「现在是哪一栏」，
+/// 按钮说的是「点一下切去哪一栏」，贴在一起会互相抢戏。
 struct ReportTabView: View {
 
     @ObservedObject var store: ReportStore
@@ -27,6 +29,13 @@ struct ReportTabView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Metrics.cardSpacing) {
                     kindPicker
+
+                    // 往期的下拉就贴在分段控件下面（同两行控件挨在一起才是
+                    // 一组切换），右对齐 —— 这一行没有别的内容，靠左会像标题
+                    HStack {
+                        Spacer(minLength: 8)
+                        pastKindMenu
+                    }
 
                     if let header = store.headerText(for: selectedKind) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -65,7 +74,7 @@ struct ReportTabView: View {
                 ReportDetailView(store: store, kind: entry.kind ?? selectedKind, entry: entry)
             }
             .navigationDestination(for: PeriodReport.Item.self) { item in
-                ReportItemDetailView(item: item)
+                ReportItemDetailView(store: store, item: item)
             }
         }
         .tint(Theme.accent)
@@ -192,20 +201,17 @@ struct ReportTabView: View {
         }
     }
 
-    /// 标题跟**往期自己**的那一栏走；右端按钮写的是「往点的那个」——
-    /// 点它就是切过去，所以按钮上写目标栏目名，不是当前选中的。
+    /// 标题只跟**往期自己**的那一栏走（切换的下拉在分段控件下面，不在这儿）。
     private var pastHeader: some View {
-        HStack(spacing: 10) {
-            SectionTitle(text: "往期" + pastKind.title)
-            Spacer(minLength: 8)
-            pastKindMenu
-        }
+        SectionTitle(text: "往期" + pastKind.title)
     }
 
     private var otherKind: ReportKind {
         pastKind == .weekly ? .monthly : .weekly
     }
 
+    /// 按钮上写的是「往点的那个」—— 点它就是切过去，所以写目标栏目名，
+    /// 不是当前选中的（写当前的就变成「点了没反应」）。
     private var pastKindMenu: some View {
         Menu {
             ForEach(ReportKind.allCases) { kind in

@@ -48,6 +48,14 @@ final class ReportStore: ObservableObject {
     private var badgeChecks: Set<ReportKind> = []
     /// 往期详情（key = `weekly-2026-W41`）。已发布的期次不可变，永久内存缓存、不落盘。
     private var details: [String: PeriodReport] = [:]
+    /// 条目正文（key = `/items/{id}` 末段）。已发布的条目同样不可变 → 永久内存缓存。
+    private var itemBodies: [String: [ReportItemBody.Block]] = [:]
+    /// 整页都认不出正文的条目 —— 页面不可变，重试也没有意义，记下来别再打过去。
+    private var itemBodyRejected: Set<String> = []
+    private var itemBodyAttemptAt: [String: Date] = [:]
+    /// 只在**失败**之后当防抖地板：成功与「认不出正文」都会被永久记住，
+    /// 所以不会出现同一个 id 反复拉的情况。
+    private let itemBodyFloor: TimeInterval = 5
 
     init(api: AIHOTAPI = .shared, defaults: UserDefaults = .standard) {
         self.api = api
@@ -338,6 +346,42 @@ final class ReportStore: ObservableObject {
         }
     }
 
+    // MARK: - 条目正文（`/items/{id}`）
+
+    /// 一条新闻的站内页正文。取不到（没链接 / 页面认不出 / 网络失败）返回 nil，
+    /// 详情页退回「AI 导读 + 打开原文」那一版 —— 宁可少显示，不显示半个页面。
+    ///
+    /// 与往期详情同一条理由：**已发布的条目不可变** → 成功或「认不出正文」都记下来，
+    /// 同一个 id 一个会话里只打一次网络；只有失败才留 5 秒地板等重试。
+    /// 这一页**没有 ETag**，所以规则 2 的 304-无正文坑在这里不存在；
+    /// 但 429/503 的 `Retry-After` 全局闸门照旧要过。
+    func itemBody(link: String?) async -> [ReportItemBody.Block]? {
+        guard let id = ReportItemID.id(fromItemLink: link) else { return nil }
+        if let cached = itemBodies[id] { return cached }
+        if itemBodyRejected.contains(id) { return nil }
+
+        let last = itemBodyAttemptAt[id] ?? .distantPast
+        guard Date().timeIntervalSince(last) >= itemBodyFloor else { return nil }
+        guard Date() >= nextAllowedAt else { return nil }
+
+        itemBodyAttemptAt[id] = Date()
+        do {
+            let html = try await api.itemHTML(id: id)
+            if let blocks = ReportItemBody.parse(html: html) {
+                itemBodies[id] = blocks
+                return blocks
+            }
+            // 已发布条目不可变 —— 这一页就是没有 `<div class="prose">`，再拉一百次也一样
+            itemBodyRejected.insert(id)
+            return nil
+        } catch let error as APIError {
+            recordNextAllowed(at: error)
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - 缓存清理（设置页「清除本地缓存」）
 
     /// 只清周报/月报自己的快照与内存：**收藏、对话记录一概不动**（规则 6）。
@@ -347,6 +391,9 @@ final class ReportStore: ObservableObject {
     func clearCache() {
         ReportSnapshotCache.clear()
         details = [:]
+        itemBodies = [:]
+        itemBodyRejected = []
+        itemBodyAttemptAt = [:]
         lastAttemptAt = [:]
         nextAllowedAt = .distantPast
     }

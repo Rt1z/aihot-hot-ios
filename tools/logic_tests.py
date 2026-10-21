@@ -1687,6 +1687,313 @@ def report_is_unread(latest, last_seen):
 
 
 # --------------------------------------------------------------------------
+# 镜像 20：周报/月报条目站内页的正文解析（ReportItemBody）
+# --------------------------------------------------------------------------
+# 与 Swift `ReportItemBody.parse` 对应（规则 4：Swift 是权威）。
+# 与 HotPageEnricher / LeaderboardParser 同属「从网页抽数据」，但这里唯一的锚点
+# 是 `<div class="prose">`（React Router SSR，没有 __NEXT_DATA__）—— 改版风险由
+# 四份 2026-10-21 的真实抓取夹具 `report-item-*.html` 钉住。
+# 这里的正则**不能**照抄 Swift 字面量（规则 4 的盲点：Python 写对了不代表 Swift 写对了），
+# 所以断言钉的是「两边对同一份字节给出同一组块」，形状对不上会当场红。
+
+ITEM_BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "pre"}
+ITEM_MAXIMUM_CHARACTERS = 20000
+
+_ITEM_NAMED_ENTITIES = {
+    "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
+    "&#39;": "'", "&apos;": "'", "&middot;": "·", "&hellip;": "…",
+    "&mdash;": "—", "&ndash;": "–", "&times;": "×", "&laquo;": "«", "&raquo;": "»",
+}
+
+
+def item_decode_entities(text):
+    """HTML 实体解码，与 HTMLTextExtractor.decodeEntities 同一张表、同一个顺序
+    （数字实体先走，`&#39;` 落数字那条分支 —— 命名表里留着它只为对齐）。
+    """
+    def repl(match):
+        try:
+            return chr(int(match.group(2), 16 if match.group(1) == "x" else 10))
+        except (ValueError, OverflowError):
+            return match.group(0)
+    text = re.sub(r"&#(x?)([0-9A-Fa-f]+);", repl, text)
+    for key, value in _ITEM_NAMED_ENTITIES.items():
+        text = text.replace(key, value)
+    return text
+
+
+def item_tag_name(raw):
+    """`"<a href=…>"` / `"</a>"` / `"<br/>"` → `"a"` / `"a"` / `"br"`。"""
+    if not raw.startswith("<"):
+        return ""
+    rest = raw[1:]
+    if rest.startswith("/"):
+        rest = rest[1:]
+    rest = rest.lstrip()
+    name = ""
+    for char in rest:
+        if char.isalnum():
+            name += char
+        else:
+            break
+    return name.lower()
+
+
+def item_is_closing(raw):
+    return len(raw) > 1 and raw[1] == "/"
+
+
+def item_matching_close(tag, text, start):
+    """从 start 找 `</tag>`，按同名开标签计数配平。找不到返回 None。"""
+    depth = 1
+    cursor = start
+    while True:
+        lt = text.find("<", cursor)
+        if lt < 0:
+            return None
+        gt = text.find(">", lt)
+        if gt < 0:
+            return None
+        raw = text[lt:gt + 1]
+        if item_tag_name(raw) == tag:
+            if item_is_closing(raw):
+                depth -= 1
+                if depth == 0:
+                    return lt
+            else:
+                depth += 1
+        cursor = gt + 1
+
+
+def item_prose_fragment(html):
+    """取 `<div class="prose">` 到配平的 `</div>` 之间的内容；没有正文 → None。"""
+    match = re.search(r'<div[^>]*\bclass\s*=\s*["\'][^"\']*\bprose\b[^"\']*["\'][^>]*>',
+                      html, re.I)
+    if match is None:
+        return None
+    depth = 1
+    cursor = match.end()
+    while True:
+        lt = html.find("<", cursor)
+        if lt < 0:
+            return None
+        gt = html.find(">", lt)
+        if gt < 0:
+            return None
+        raw = html[lt:gt + 1]
+        if item_tag_name(raw) == "div":          # 只数 div，别的标签不参与配平
+            depth += -1 if item_is_closing(raw) else 1
+            if depth == 0:
+                return html[match.end():lt]
+        cursor = gt + 1
+
+
+def item_block_chunks(fragment):
+    """把正文切成「块级标签 → 内容」；非块级（含嵌在正文里的 div）一律跳过。"""
+    chunks = []
+    cursor = 0
+    while True:
+        lt = fragment.find("<", cursor)
+        if lt < 0:
+            break
+        gt = fragment.find(">", lt)
+        if gt < 0:
+            break
+        raw = fragment[lt:gt + 1]
+        name = item_tag_name(raw)
+        after = gt + 1
+        if name == "hr":
+            chunks.append(("hr", ""))
+            cursor = after
+            continue
+        if name in ITEM_BLOCK_TAGS and not item_is_closing(raw):
+            end = item_matching_close(name, fragment, after)
+            if end is None:
+                cursor = after
+                continue
+            chunks.append((name, fragment[after:end]))
+            cursor = end + 1
+            continue
+        cursor = after
+    return chunks
+
+
+def item_collapse_spaces(text):
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def item_href(raw):
+    match = re.search(r'href\s*=\s*["\']([^"\']+)["\']', raw, re.I)
+    if match is None:
+        return None
+    return item_decode_entities(match.group(1))
+
+
+def item_inline_runs(html):
+    """一趟扫描切出 (text, url, bold) 片段；相邻同样式的片段会合并。"""
+    runs = []
+    state = {"url": None, "bold": 0, "plain": ""}
+
+    def flush():
+        text = item_collapse_spaces(item_decode_entities(state["plain"]))
+        state["plain"] = ""
+        if not text:
+            return
+        merged = (state["url"], state["bold"] > 0)
+        if runs and (runs[-1][1], runs[-1][2]) == merged:
+            runs[-1] = (runs[-1][0] + text, merged[0], merged[1])
+        else:
+            runs.append((text, merged[0], merged[1]))
+
+    cursor = 0
+    while True:
+        lt = html.find("<", cursor)
+        if lt < 0:
+            break
+        state["plain"] += html[cursor:lt]
+        gt = html.find(">", lt)
+        if gt < 0:
+            raw = html[lt:]
+            gt = len(html) - 1                   # 没有 '>'：当标签处理完就收尾
+        else:
+            raw = html[lt:gt + 1]
+        name = item_tag_name(raw)
+        closing = item_is_closing(raw)
+        if name == "a":
+            if closing:
+                flush()
+                state["url"] = None
+            else:
+                state["url"] = item_href(raw)
+        elif name in ("b", "strong"):
+            if closing:
+                flush()
+                state["bold"] = max(0, state["bold"] - 1)
+            else:
+                state["bold"] += 1
+        elif name == "br":
+            state["plain"] += " "                # 硬换行只是排版
+        cursor = gt + 1
+    state["plain"] += html[cursor:]
+    flush()
+    return runs
+
+
+def item_plain_text(runs):
+    return item_collapse_spaces("".join(run[0] for run in runs))
+
+
+def item_is_noise(text):
+    """站点残留的三种确定形态：空 / 一个字母数字都没有 / 模板变量没填。
+    三条都是通用信号 —— 不照着某一家的中文文案写死（宁可少滤，不可滤错）。
+    """
+    if not text:
+        return True
+    if not any(char.isalnum() for char in text):
+        return True
+    return "[[" in text and "]]" in text
+
+
+def item_list_items(html):
+    items = []
+    cursor = 0
+    while True:
+        lt = html.find("<", cursor)
+        if lt < 0:
+            break
+        gt = html.find(">", lt)
+        if gt < 0:
+            break
+        raw = html[lt:gt + 1]
+        after = gt + 1
+        if item_tag_name(raw) == "li" and not item_is_closing(raw):
+            end = item_matching_close("li", html, after)
+            if end is not None:
+                runs = item_inline_runs(html[after:end])
+                if item_plain_text(runs):
+                    items.append(runs)
+                cursor = end + 1
+                continue
+        cursor = after
+    return items
+
+
+def item_make_block(chunk):
+    tag, inner = chunk
+    if tag == "hr":
+        return ("divider",)
+    if tag in ("ul", "ol"):
+        items = [runs for runs in item_list_items(inner)
+                 if not item_is_noise(item_plain_text(runs))]
+        return ("bullets", items) if items else None
+    if len(tag) == 2 and tag[0] == "h":          # h1–h6
+        text = item_plain_text(item_inline_runs(inner))
+        if item_is_noise(text):
+            return None
+        return ("heading", int(tag[1]), text)
+    runs = item_inline_runs(inner)
+    text = item_plain_text(runs)
+    if item_is_noise(text):
+        return None
+    return ("paragraph", runs)
+
+
+def item_block_cost(block):
+    if block[0] == "divider":
+        return 0
+    if block[0] == "heading":
+        return len(block[2])
+    if block[0] == "paragraph":
+        return len(item_plain_text(block[1]))
+    return sum(len(item_plain_text(runs)) for runs in block[1])
+
+
+def item_parse(html):
+    """整页 HTML → 正文块；认不出正文返回 None。截断发生在块边界上。"""
+    fragment = item_prose_fragment(html)
+    if fragment is None:
+        return None
+    blocks = []
+    total = 0
+    for chunk in item_block_chunks(fragment):
+        block = item_make_block(chunk)
+        if block is None:
+            continue
+        cost = item_block_cost(block)
+        if total > 0 and total + cost > ITEM_MAXIMUM_CHARACTERS:
+            break
+        blocks.append(block)
+        total += cost
+    return blocks or None
+
+
+def report_item_id(link):
+    """`links.aihot` → `/items/{id}` 里的 id（与 public_id 同一条纪律：
+    绝不拿 HTML 地址本身去请求）。比 StoryID 多一道**路径锚点** ——
+    往期链接形如 `/weekly/2026-W42`，只看末段会把期号当成条目 id 发出去。
+    """
+    if not link:
+        return None
+    parts = urlsplit(link)
+    segments = [s for s in parts.path.split("/") if s]
+    if len(segments) < 2 or segments[-2].lower() != "items":
+        return None
+    candidate = segments[-1].strip()
+    if len(candidate) < 8 or candidate.lower() == "items":
+        return None
+    allowed = set("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.")
+    if not set(candidate) <= allowed:
+        return None
+    return candidate
+
+
+def item_kind_counts(blocks):
+    counts = {}
+    for block in blocks:
+        counts[block[0]] = counts.get(block[0], 0) + 1
+    return counts
+
+
+# --------------------------------------------------------------------------
 # 断言（全部以夹具为准）
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
@@ -2686,6 +2993,197 @@ def run():
     check(not report_is_unread("2026-W42", "2026-W42"), "同期号 → 已读")
     check(report_is_unread("2026-W42", "2026-W41"), "期号变了 → 未读")
     check(report_is_unread("2026-W41", "2026-W42"), "只看相等与否")
+
+    print("== 镜像 20：周报/月报条目站内页正文（ReportItemBody）==")
+    # 四份 2026-10-21 的真实抓取。认不出正文 → 上层退回轻量版详情页，
+    # 所以「抽出来是非空的」本身就是最要紧的一条。
+    item_anthropic = item_parse(fixture_text("report-item-anthropic.html"))
+    item_google = item_parse(fixture_text("report-item-google.html"))
+    item_techcrunch = item_parse(fixture_text("report-item-techcrunch.html"))
+    item_xai = item_parse(fixture_text("report-item-xai.html"))
+    for item_name, item_blocks in (("anthropic", item_anthropic), ("google", item_google),
+                                   ("techcrunch", item_techcrunch), ("xai", item_xai)):
+        check(bool(item_blocks), "%s 夹具抽出非空正文" % item_name)
+
+    # 块型分布 —— 全部来自夹具实测，不是「应该是多少」的推演
+    check_eq(item_kind_counts(item_anthropic), {"paragraph": 33, "heading": 8},
+             "anthropic：33 段 + 8 个标题")
+    check_eq(item_kind_counts(item_google),
+             {"paragraph": 26, "divider": 2, "bullets": 8, "heading": 8},
+             "google：26 段 + 2 条分节线 + 8 组列表 + 8 个标题")
+    check_eq(item_kind_counts(item_techcrunch), {"paragraph": 19},
+             "techcrunch：19 段，一个标题都没有")
+    check_eq(item_kind_counts(item_xai),
+             {"paragraph": 15, "divider": 1, "bullets": 1, "heading": 5},
+             "xai：15 段 + 1 条分节线 + 1 组列表 + 5 个标题")
+
+    check_eq(len(item_anthropic), 41, "anthropic 块数")
+    check_eq(len(item_google), 44, "google 块数")
+    check_eq(len(item_techcrunch), 19, "techcrunch 块数")
+    check_eq(len(item_xai), 22, "xai 块数")
+
+    # 标题：级别取原始数字（h2 → 2），文案逐字来自夹具
+    item_first_headings = {
+        "anthropic": [b for b in item_anthropic if b[0] == "heading"][0],
+        "google": [b for b in item_google if b[0] == "heading"][0],
+        "xai": [b for b in item_xai if b[0] == "heading"][0],
+    }
+    check_eq(item_first_headings["anthropic"], ("heading", 2, "简单的防御还不够"),
+             "anthropic 首个标题是 h2")
+    check_eq(item_first_headings["google"], ("heading", 2, "解决复杂的工程任务"),
+             "google 首个标题是 h2")
+    check_eq(item_first_headings["xai"], ("heading", 2, "套餐与定价"),
+             "xai 首个标题是 h2")
+    check(not any(b[0] == "heading" for b in item_techcrunch),
+          "techcrunch 正文里没有标题，不许凭空造一个")
+
+    # 首段纯文本（`item_plain_text` 拼出来就是给界面看的那一行）
+    check_eq(item_plain_text(item_google[0][1]), "2026年10月13日",
+             "google 首段是发布日期")
+    check_eq(item_plain_text(item_xai[0][1]),
+             "Grok、Grok Bot、Cursor 和 X Premium，全部包含在一个套餐中。",
+             "xai 首段是导语")
+    check(item_plain_text(item_anthropic[0][1]).startswith(
+        "近几个月来，我们在降低蒸馏攻击对 Claude 的有效性方面取得了实质性进展"),
+        "anthropic 首段开头")
+    check(item_plain_text(item_techcrunch[0][1]).startswith(
+        "Character.AI 让用户创建 AI 角色并与它们对话"),
+        "techcrunch 首段开头")
+    # 空白要被折叠掉（原文里夹着换行与缩进）
+    check("  " not in item_plain_text(item_techcrunch[0][1]) and
+          not item_plain_text(item_techcrunch[0][1]).startswith("\n"),
+          "首段没有残留的换行与缩进")
+
+    # 行内链接：文本与 URL 必须成对出现，URL 要解过实体
+    item_linked = None
+    for item_block in item_anthropic:
+        for item_run in (item_block[1] if item_block[0] == "paragraph"
+                         else (item_block[1][0] if item_block[0] == "bullets" else [])):
+            if item_run[1]:
+                item_linked = item_run
+                break
+        if item_linked:
+            break
+    check(item_linked is not None, "anthropic 正文里认得出链接片段")
+    check_eq(item_linked[1],
+             "https://www.anthropic.com/threat-intelligence-report-september-2026"
+             "#illicit-distillation-sep-26",
+             "anthropic 链接的 href 原样保留（含 # 锚点）")
+
+    # 列表：组数与首项逐字来自夹具
+    item_google_bullets = [b for b in item_google if b[0] == "bullets"][0]
+    item_xai_bullets = [b for b in item_xai if b[0] == "bullets"][0]
+    check_eq(len(item_google_bullets[1]), 6, "google 目录组有 6 项")
+    check_eq(item_plain_text(item_google_bullets[1][0]), "为解决你最棘手的问题而打造",
+             "google 目录首项")
+    check_eq(len(item_xai_bullets[1]), 4, "xai 套餐要点有 4 项")
+    check_eq(item_plain_text(item_xai_bullets[1][0]), "Grok支持聊天、语音以及图像和视频生成。",
+             "xai 要点首项")
+    # 首项本身就是一条站内链接（`<li><a …>`），片段要带着 URL
+    check(item_google_bullets[1][0][0][1] is not None,
+          "google 目录首项带链接")
+    check(item_google_bullets[1][0][0][1].endswith("#builttosolve"),
+          "google 目录首项的锚点")
+
+    # 顺序：块的先后就是页面的先后，google 开头是「日期 → 导语 → 两条分节线」
+    check_eq([b[0] for b in item_google[:4]],
+             ["paragraph", "paragraph", "divider", "divider"],
+             "google 开头四块的类型顺序")
+    check_eq([b[0] for b in item_xai[:5]],
+             ["paragraph", "divider", "paragraph", "paragraph", "bullets"],
+             "xai 开头五块的类型顺序")
+
+    # 噪声过滤：三条通用信号（空 / 纯标点 / 模板变量），一个中文字都不写死
+    def _item_text_of(blocks):
+        """把所有块的可见文本摊平（标题取 text，段落与列表项拼纯文本）。"""
+        out = []
+        for block in blocks:
+            if block[0] == "paragraph":
+                out.append(item_plain_text(block[1]))
+            elif block[0] == "heading":
+                out.append(block[2])
+            elif block[0] == "bullets":
+                out.extend(item_plain_text(runs) for runs in block[1])
+        return out
+
+    google_text = _item_text_of(item_google)
+    check(all("[[" not in line for line in google_text),
+          "google 里没留下 [[duration]] 这种没填的模板变量")
+    check("|" not in google_text, "google 里没留下纯分隔符那一段")
+    check(any(item_plain_text(b[1]) == "收听文章" for b in item_google
+              if b[0] == "paragraph"),
+          "站点自己的文案**不**滤 —— 谁家的都认不出来，硬编码就是猜")
+
+    # 认不出正文 → None（上层退回轻量版，不显示半个页面）
+    check_eq(item_parse("<html><body><p>hi</p></body></html>"), None, "没有 prose → None")
+    check_eq(item_parse('<div class="prose"></div>'), None, "空 prose → None")
+    check_eq(item_parse("<html><body>没有正文</body></html>"), None, "整页没正文 → None")
+    # prose 里嵌着 div 也要配平（正文里出现别的 div 不能把片段切断）
+    check_eq(item_plain_text(item_parse(
+        '<div class="prose"><div class="x"><p>在嵌套里</p></div><p>外面</p></div>')[0][1]),
+        "在嵌套里", "嵌在 div 里的段落照样认得出")
+    check_eq(len(item_parse(
+        '<div class="prose"><div class="x"><p>在嵌套里</p></div><p>外面</p></div>')),
+        2, "嵌套 div 不会把正文切断")
+    # 行内：链接与加粗交替，实体要解码，URL 要带着
+    item_edge = item_parse(
+        '<div class="prose"><p>见 <a href="https://x.com/a?b=1&amp;c=2"><b>这里</b></a>'
+        ' 与 <b>结论</b>。</p><p>[[duration]] 分钟</p><p>正文</p></div>')
+    check_eq(item_edge[0][1],
+             [("见 这里", "https://x.com/a?b=1&c=2", True),
+              ("与 结论", None, True), ("。", None, False)],
+             "链接/加粗交替 + `&amp;` 解码 + 相邻同样式合并")
+    check_eq([b[0] for b in item_edge], ["paragraph", "paragraph"],
+             "模板变量那段被滤掉，只剩两段")
+    # 空段与纯空白段也滤掉（`<p></p>` 是渲染器留下的空壳）
+    check_eq(item_parse('<div class="prose"><p>收听文章</p><p>[[duration]] 分钟</p>'
+                        '<p></p><p> </p><p>正文</p></div>'),
+             [("paragraph", [("收听文章", None, False)]),
+              ("paragraph", [("正文", None, False)])],
+             "空段落滤掉，站点文案留着")
+    # 只剩噪声 → 整页算「没有正文」
+    check_eq(item_parse('<div class="prose"><p>[[x]]</p></div>'), None,
+             "全是噪声 = 没有正文 → None")
+    check_eq(item_parse('<div class="prose">   </div>'), None, "纯空白 prose → None")
+
+    # 块边界截断：20000 是硬上限，但第一段超限也得给一段
+    item_big_a = "a" * 10000
+    item_big_b = "b" * 10000
+    item_big_c = "c" * 100
+    check_eq(len(item_parse('<div class="prose"><p>%s</p><p>%s</p><p>%s</p></div>'
+                            % (item_big_a, item_big_b, item_big_c))),
+             2, "10000+10000+100：第三段被挡在 20000 之外")
+    check_eq(len(item_parse('<div class="prose"><p>%s</p></div>' % ("a" * 30000))),
+             1, "第一段就超限也要给一段 —— 空正文比少几段更糟")
+    check_eq(item_block_cost(("paragraph", [("x" * 5, None, False)])), 5,
+             "段落的字符成本就是纯文本长度")
+    check_eq(item_block_cost(("divider",)), 0, "分节线不占字符额度")
+    check_eq(item_block_cost(("heading", 2, "abc")), 3, "标题的字符成本")
+
+    # `links.aihot` → 条目 id（路径锚点是 `/items/`，不是只看末段）
+    check_eq(report_item_id("https://aihot.news/items/smxxtw5ca2c9jscojk4ppe5hf"),
+             "smxxtw5ca2c9jscojk4ppe5hf", "条目链接取末段")
+    check_eq(report_item_id("https://aihot.news/items/cmucwy58v0rskroedmv35n8ji?utm=1#x"),
+             "cmucwy58v0rskroedmv35n8ji", "query 与 fragment 被剥掉")
+    check_eq(report_item_id("https://aihot.virxact.com/items/cmrrjaxlv030jbihklywu3xy6"),
+             "cmrrjaxlv030jbihklywu3xy6", "旧域名也只看路径")
+    check_eq(report_item_id("https://aihot.news/weekly/2026-W42"), None,
+             "往期链接的末段是期号，不许当成条目 id")
+    check_eq(report_item_id("https://aihot.news/monthly/2026-09"), None, "月报期同理")
+    check_eq(report_item_id("https://aihot.news/items/short"), None, "太短的末段被拒")
+    check_eq(report_item_id("https://aihot.news/items/has space!"), None, "非法字符被拒")
+    check(report_item_id(None) is None and report_item_id("") is None, "空值被拒")
+    # 四份夹具里每一条 item 链接都要能取出 id（取不到就永远看不到全文）
+    for item_fix in ("report-weekly-latest.json", "report-weekly-older.json",
+                     "report-monthly-latest.json"):
+        for item_sec in fixture_json(item_fix)["report"]["sections"]:
+            for item_row in item_sec["items"]:
+                item_link = (item_row.get("links") or {}).get("aihot")
+                if item_link is None:
+                    continue
+                got_id = report_item_id(item_link)
+                check(got_id is not None and "/" not in got_id,
+                      "%s 里的条目链接能取出 id" % item_fix)
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)

@@ -2,19 +2,25 @@ import SwiftUI
 
 /// 周报/月报里**一条新闻**的详情页。
 ///
-/// 刻意不发任何请求：正文用的就是周报 JSON 里已有的字段（标题、来源、
-/// 发布时间、AI 导读）。站内条目页 `/items/{id}` 没有公开 JSON 接口 ——
-/// 只有 HTML，正文还埋在 turbo-stream 载荷里（实测 2026-10-21），
-/// 官网那份「AI 翻译正文」不在本页范围内。与其做高风险的 HTML 解析
-/// （规则 18），不如把已有的「AI 导读」完整呈现：它本来就是官网
-/// 这一块的顶部内容，字段与官网逐字同源。
+/// 上半是周报 JSON 里已有的字段（标题、来源、发布时间、AI 导读 —— 与官网逐字同源）；
+/// 下半是站内条目页 `/items/{id}` 的**完整正文**：那一页没有公开 JSON 接口
+/// （`/api/v1/items/*` 全部 404，结构化载荷是 React Router 的 turbo-stream），
+/// 只能整页抓 HTML，再由 `ReportItemBody` 从 `<div class="prose">` 里取出块。
+///
+/// **取不到正文不报错**：没链接、页面认不出、断网，三种都退回「AI 导读 + 打开原文」
+/// 这一版（规则 18：宁可少显示，也不显示半个页面）。所以骨架屏只在**真的在取**的时候出现。
 ///
 /// 「打开原文」走系统阅读器（规则 14），旁边的「网页版」是唯一逃生口。
 struct ReportItemDetailView: View {
 
+    let store: ReportStore
     let item: PeriodReport.Item
 
     @State private var webLink: WebLinkSheet?
+    @State private var blocks: [ReportItemBody.Block]?
+    /// 一进页面就先亮骨架：等 `.task` 跑起来再切成 true 反而会先闪一下空
+    @State private var isLoadingBody = true
+    @State private var didLoadBody = false
 
     var body: some View {
         ScrollView {
@@ -35,6 +41,8 @@ struct ReportItemDetailView: View {
                     guideCard(summary)
                 }
 
+                bodySection
+
                 linkButtons
 
                 footer
@@ -47,6 +55,18 @@ struct ReportItemDetailView: View {
         // 顶栏不放大标题：正文第一行就是这条新闻的标题，再放一份只是重复
         .navigationBarTitleDisplayMode(.inline)
         .webLinkSheet(item: $webLink)
+        // 正文里的行内链接不丢给系统 Safari：站内的永远走网页（网页应用没有正文，
+        // 规则 14），外部的进阅读器 —— 与「打开原文」按钮同一个口径
+        .environment(\.openURL, OpenURLAction { url in
+            openInApp(url)
+            return .handled
+        })
+        .task {
+            guard !didLoadBody else { return }
+            didLoadBody = true
+            blocks = await store.itemBody(link: item.links?.aihot)
+            isLoadingBody = false
+        }
     }
 
     /// 「来源名 · 10月18日 09:12」（缺哪项省哪项）。
@@ -59,6 +79,34 @@ struct ReportItemDetailView: View {
             parts.append(RelativeTime.absoluteShort(published))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    // MARK: - 正文
+
+    @ViewBuilder
+    private var bodySection: some View {
+        if let blocks = blocks {
+            ReportItemBodyView(blocks: blocks)
+                .padding(14)
+                .cardBackground()
+        } else if isLoadingBody {
+            VStack(alignment: .leading, spacing: 10) {
+                SkeletonBlock(height: 14, widthFraction: 0.92)
+                SkeletonBlock(height: 14, widthFraction: 0.97)
+                SkeletonBlock(height: 14, widthFraction: 0.88)
+                SkeletonBlock(height: 14, widthFraction: 0.55)
+            }
+            .padding(14)
+            .cardBackground()
+        }
+        // 既没取到也没在取 → 整块省略：下面的「打开原文」就是这一版的出口
+    }
+
+    private func openInApp(_ url: URL) {
+        let host = url.host ?? ""
+        let isAihot = host == "aihot.news" || host.hasSuffix(".aihot.news")
+            || host == "aihot.virxact.com" || host.hasSuffix(".aihot.virxact.com")
+        webLink = WebLinkSheet(url: url, entersReader: !isAihot)
     }
 
     private func guideCard(_ summary: String) -> some View {

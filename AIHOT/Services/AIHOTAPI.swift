@@ -220,6 +220,27 @@ final class AIHOTAPI: @unchecked Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// 条目站内页 HTML（`/items/{id}`，id 取自 `links.aihot` 的末段）。
+    ///
+    /// 这一页**没有 JSON 接口**（`/api/v1/items/*` 全部 404），结构化载荷是
+    /// React Router 的 turbo-stream，Swift 里解不动 —— 只能整页抓回来从
+    /// `<div class="prose">` 里取正文（见 `ReportItemBody`）。
+    ///
+    /// - Note: 实测 `max-age=300, s-maxage=599` 且**没有 ETag** ——
+    ///   所以这里不做条件请求（做了也没用，还会撞上规则 2 那个「304 却没有正文」
+    ///   的坑）。已发布的条目不可变，上层拿到一次就永久内存缓存，只有失败才重试。
+    func itemHTML(id: String) async throws -> String {
+        var request = URLRequest(url: url(for: "/items/\(id)"))
+        request.httpMethod = "GET"
+        request.setValue(AIHOTAPI.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+
+        let (data, response) = try await perform(request)
+        try validate(response: response, data: data)
+        return String(decoding: data, as: UTF8.self)
+    }
+
     // MARK: - 内部
 
     private func url(for path: String) -> URL {

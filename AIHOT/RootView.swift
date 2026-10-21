@@ -17,20 +17,21 @@ struct RootView: View {
             HotListView(store: hot, favorites: favorites)
                 .tabItem { Label("热点", systemImage: "flame") }
 
-            FavoritesListView(hot: hot, favorites: favorites)
-                .tabItem { Label("收藏", systemImage: "bookmark") }
-
-            // 模型榜/周报插在收藏和设置之间：「设置」保持最后是 iOS 惯例。
-            // 注意 AIHOTUITests 按下标取「设置」Tab，插位要同步改那边的 boundBy。
-            LeaderboardView(store: leaderboard)
-                .tabItem { Label("模型榜", systemImage: "chart.bar.xaxis") }
-
             ReportTabView(store: reports)
                 .tabItem { Label("周报", systemImage: "newspaper") }
                 // 有新一期就挂「新」；两边期号缺失时 `ReportUnread` 一律返回 false
                 // （新装用户第一次看到某一期只补基线，不挂角标）。
                 .badge(reportBadge)
 
+            LeaderboardView(store: leaderboard)
+                .tabItem { Label("模型榜", systemImage: "chart.bar.xaxis") }
+
+            FavoritesListView(hot: hot, favorites: favorites)
+                .tabItem { Label("收藏", systemImage: "bookmark") }
+
+            // 顺序：热点 | 周报 | 模型榜 | 收藏 | 设置，「设置」保持最后是 iOS 惯例。
+            // 注意 AIHOTUITests 按下标取「设置」Tab，只要它还在最后就不必改 boundBy；
+            // 插入/调换**设置之前**的 Tab 才要同步改那边的 boundBy。
             AboutView(store: hot, favorites: favorites, reports: reports)
                 .tabItem { Label("设置", systemImage: "gearshape") }
         }
