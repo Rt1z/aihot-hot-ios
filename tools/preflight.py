@@ -19,6 +19,7 @@ import os
 import plistlib
 import re
 import sys
+import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -44,6 +45,19 @@ JSON_FILES = [
     "AIHOTTests/Fixtures/report-weekly-index.json",
     "AIHOTTests/Fixtures/report-weekly-older.json",
     "AIHOTTests/Fixtures/report-monthly-latest.json",
+    "AIHOTTests/Fixtures/subscription-config.json",
+    "AIHOTTests/Fixtures/subscription-classify.json",
+    "AIHOTTests/Fixtures/dajiala-post-history.json",
+    "AIHOTTests/Fixtures/dajiala-error-10002.json",
+    "AIHOTTests/Fixtures/dajiala-error-qps.json",
+    "AIHOTTests/Fixtures/dajiala-error-balance.json",
+    "AIHOTTests/Fixtures/dajiala-unknown-shape.json",
+]
+
+# XML 夹具也要在推送前验证：RSS 是「字节 → XMLParser」的整条链路，
+# 文件被编辑器写坏时，Swift 用例的报错会是一句看不出根因的解析失败。
+XML_FILES = [
+    "AIHOTTests/Fixtures/rsshub-bilibili-video.xml",
 ]
 
 PYTHON_FILES = [
@@ -60,6 +74,8 @@ REQUIRED_PLIST_KEYS = [
     "CFBundleExecutable",
     "UILaunchScreen",
     "UISupportedInterfaceOrientations",
+    # 订阅要连局域网里的 RSSHub / 配置文件；少了这句 iOS 会静默拒绝且不弹权限框。
+    "NSLocalNetworkUsageDescription",
 ]
 
 PATH_REFERENCE_SOURCES = [
@@ -105,6 +121,19 @@ def check_json(relative):
         fail("JSON 解析失败 %s：%s" % (relative, exc))
         return
     checked.append("json %s" % relative)
+
+
+def check_xml(relative):
+    path = os.path.join(ROOT, relative)
+    if not os.path.isfile(path):
+        fail("缺少文件：%s" % relative)
+        return
+    try:
+        ET.parse(path)
+    except Exception as exc:  # noqa: BLE001
+        fail("XML 解析失败 %s：%s" % (relative, exc))
+        return
+    checked.append("xml %s" % relative)
 
 
 def check_plist(relative):
@@ -212,6 +241,8 @@ def main():
     check_plist("AIHOT/Info.plist")
     for relative in JSON_FILES:
         check_json(relative)
+    for relative in XML_FILES:
+        check_xml(relative)
     for relative in PYTHON_FILES:
         check_python(relative)
     check_icon_wiring()

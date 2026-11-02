@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "wechat": [
+    {
+      "name": "公众号 A",
+      "url": "https://mp.weixin.qq.com/s/abc?__biz=MzkxMjUwNzA4NQ%3D%3D&mid=1&idx=1&sn=x",
+      "unknown": "ignored"
+    },
+    {
+      "name": "公众号 B",
+      "biz": "MzkxOther==",
+      "enabled": false
+    },
+    {
+      "name": "坏条目",
+      "mid": "123"
+    },
+    {
+      "name": "重复 A",
+      "url": "https://mp.weixin.qq.com/s/def?__biz=MzkxMjUwNzA4NQ%3D%3D&mid=2"
+    },
+    {
+      "url": "ftp://example.com/x"
+    },
+    "not an object",
+    {
+      "name": "公众号 C",
+      "url": "https://mp.weixin.qq.com/s/ghi"
+    }
+  ],
+  "bilibili": [
+    {
+      "name": "UP 1",
+      "uid": "946974"
+    },
+    {
+      "name": "UP 2",
+      "route": "/bilibili/user/video/123456?limit=10"
+    },
+    {
+      "name": "坏路由",
+      "route": "https://evil.example.com/bilibili/user/video/1"
+    },
+    {
+      "name": "越界路由",
+      "route": "/bilibili/../../etc/passwd"
+    },
+    {
+      "name": "重复 UP 2",
+      "route": "/bilibili/user/video/123456?limit=10"
+    },
+    {
+      "name": "未启用 UP",
+      "uid": "999",
+      "enabled": false
+    }
+  ]
+}

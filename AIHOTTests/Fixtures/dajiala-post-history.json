@@ -1,0 +1,27 @@
+{
+  "code": 0,
+  "message": "ok",
+  "total_page": 2,
+  "data": [
+    {
+      "title": "AI 产品经理的下一步",
+      "url": "https://mp.weixin.qq.com/s/aaa",
+      "public_time": "2026-10-20 09:30:00",
+      "wx_name": "某产品号",
+      "hashid": "hash-1",
+      "digest": "关于 AI 产品与职业发展。"
+    },
+    {
+      "title": "睡眠与免疫力",
+      "url": "https://mp.weixin.qq.com/s/bbb",
+      "public_time": "2026-10-19 21:00:00",
+      "wx_name": "某健康号",
+      "hashid": "hash-2",
+      "digest": "<p>睡眠不足会影响免疫力。</p>"
+    },
+    {
+      "title": "缺链接的条目",
+      "public_time": "2026-10-18 10:00:00"
+    }
+  ]
+}

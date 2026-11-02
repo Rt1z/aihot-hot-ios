@@ -23,13 +23,29 @@ final class SearchToolSettingsUITests: XCTestCase {
         openSearchToolsSection()
     }
 
-    /// 设置 tab（第五格：热点/周报/模型榜/收藏/设置）→ 滚到「搜索工具」区块（在「AI 对话」下面一屏）。
+    /// 个人 tab（第五格：热点/周报/模型榜/订阅/个人）→ 设置 → 滚到「搜索工具」区块。
     private func openSearchToolsSection() {
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 15), "App 没能启动")
-        // Tab 顺序：热点 | 周报 | 模型榜 | 收藏 | 设置 —— 「设置」是第 5 个（下标 4）。
-        // 下标只跟「设置是不是最后一个」有关，前面几个换位不用动这里。
+        // Tab 顺序：热点 | 周报 | 模型榜 | 订阅 | 个人 —— 「个人」是第 5 个（下标 4）。
+        // 下标只跟「个人是不是最后一个」有关；设置现在是个人页里的二级页，要多点一步。
         app.tabBars.buttons.element(boundBy: 4).tap()
-        reveal(app.switches["search-toggle-serpapi"])
+
+        // SwiftUI 的 List 行在 AX 树里有时是 button、有时是 cell，两种都认。
+        let settingsButton = app.buttons["profile-settings"]
+        if settingsButton.waitForExistence(timeout: 5) {
+            settingsButton.tap()
+        } else {
+            let settingsCell = app.cells["profile-settings"]
+            XCTAssertTrue(settingsCell.waitForExistence(timeout: 5), "个人页没有设置入口")
+            settingsCell.tap()
+        }
+        // 大标题在 AX 树里有时挂在 navigationBar、有时只是静态文字；
+        // 用「导航栏出现」或「搜索开关已存在」任一作为 push 完成的信号。
+        let searchSwitch = app.switches["search-toggle-serpapi"]
+        let reachedSettings = app.navigationBars["设置"].waitForExistence(timeout: 8)
+            || searchSwitch.waitForExistence(timeout: 2)
+        XCTAssertTrue(reachedSettings, "点了个人页的「设置」但没有进入设置页")
+        reveal(searchSwitch)
     }
 
     /// 把元素滚到可点区域。**先滑、滑到存在为止**：Form 是懒加载（UITableView），

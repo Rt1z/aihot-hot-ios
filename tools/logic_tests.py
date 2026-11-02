@@ -20,7 +20,9 @@ import json
 import os
 import re
 import sys
-from urllib.parse import urlsplit
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
+from urllib.parse import unquote, urljoin, urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -2036,6 +2038,663 @@ def fixture_json(name):
         return json.load(handle)
 
 
+# --------------------------------------------------------------------------
+# 镜像 21/22：订阅（分类器 / 配置清洗 / RSS / Dajiala / 稳定 id / 刷新门槛）
+#
+# Swift 是权威实现；这里的词库、字段别名与排序键必须与
+# AIHOT/Services/SubscriptionClassifier.swift 等文件逐条一致。
+# --------------------------------------------------------------------------
+
+SUB_TOPICS = ["tech", "health", "growth", "career", "peripheral"]
+
+SUB_LEXICON = [
+    ("ai", "tech"), ("人工智能", "tech"), ("大模型", "tech"), ("大语言模型", "tech"),
+    ("模型", "tech"), ("算法", "tech"), ("芯片", "tech"), ("半导体", "tech"),
+    ("算力", "tech"), ("开源", "tech"), ("编程", "tech"), ("程序员", "tech"),
+    ("代码", "tech"), ("软件", "tech"), ("硬件", "tech"), ("手机", "tech"),
+    ("电脑", "tech"), ("苹果", "tech"), ("华为", "tech"), ("小米", "tech"),
+    ("机器人", "tech"), ("自动驾驶", "tech"), ("互联网", "tech"), ("数据", "tech"),
+    ("网络安全", "tech"), ("量子", "tech"), ("卫星", "tech"), ("火箭", "tech"),
+    ("新能源", "tech"), ("电池", "tech"), ("光伏", "tech"), ("储能", "tech"),
+    ("openai", "tech"), ("chatgpt", "tech"), ("claude", "tech"), ("deepseek", "tech"),
+    ("gpu", "tech"), ("云计算", "tech"),
+
+    ("健康", "health"), ("医疗", "health"), ("医院", "health"), ("医生", "health"),
+    ("疾病", "health"), ("癌症", "health"), ("疫苗", "health"), ("药物", "health"),
+    ("睡眠", "health"), ("饮食", "health"), ("营养", "health"), ("减肥", "health"),
+    ("运动", "health"), ("健身", "health"), ("心理", "health"), ("焦虑", "health"),
+    ("抑郁", "health"), ("血糖", "health"), ("血压", "health"), ("心脏", "health"),
+    ("养生", "health"), ("体检", "health"), ("免疫力", "health"), ("肠道", "health"),
+    ("衰老", "health"),
+
+    ("读书", "growth"), ("阅读", "growth"), ("学习", "growth"), ("认知", "growth"),
+    ("思维", "growth"), ("思考", "growth"), ("成长", "growth"), ("习惯", "growth"),
+    ("自律", "growth"), ("复盘", "growth"), ("效率", "growth"), ("方法论", "growth"),
+    ("知识", "growth"), ("教育", "growth"), ("笔记", "growth"), ("写作", "growth"),
+    ("专注", "growth"), ("时间管理", "growth"), ("情绪", "growth"), ("自我提升", "growth"),
+    ("终身学习", "growth"),
+
+    ("职场", "career"), ("面试", "career"), ("简历", "career"), ("招聘", "career"),
+    ("晋升", "career"), ("跳槽", "career"), ("管理", "career"), ("领导力", "career"),
+    ("团队", "career"), ("沟通", "career"), ("汇报", "career"), ("绩效", "career"),
+    ("副业", "career"), ("创业", "career"), ("裁员", "career"), ("薪资", "career"),
+    ("薪酬", "career"), ("职业", "career"), ("求职", "career"), ("同事", "career"),
+    ("老板", "career"),
+
+    ("数码", "peripheral"), ("耳机", "peripheral"), ("相机", "peripheral"),
+    ("键盘", "peripheral"), ("显示器", "peripheral"), ("鼠标", "peripheral"),
+    ("音箱", "peripheral"), ("智能家居", "peripheral"), ("汽车", "peripheral"),
+    ("咖啡", "peripheral"), ("旅行", "peripheral"), ("美食", "peripheral"),
+    ("摄影", "peripheral"), ("游戏", "peripheral"), ("电影", "peripheral"),
+    ("音乐", "peripheral"), ("穿搭", "peripheral"), ("好物", "peripheral"),
+    ("测评", "peripheral"), ("桌搭", "peripheral"), ("露营", "peripheral"),
+    ("骑行", "peripheral"),
+]
+
+
+def sub_normalize(raw):
+    out = []
+    last_space = False
+    for ch in raw:
+        code = ord(ch)
+        if 0xFF01 <= code <= 0xFF5E:
+            ch = chr(code - 0xFEE0)
+        elif code == 0x3000:
+            ch = " "
+        if ch in (" ", "\t", "\n", "\r"):
+            if not last_space:
+                out.append(" ")
+                last_space = True
+            continue
+        last_space = False
+        code = ord(ch)
+        if 0x41 <= code <= 0x5A:
+            ch = chr(code + 0x20)
+        out.append(ch)
+    return "".join(out).strip(" ")
+
+
+def sub_is_ascii_word(keyword):
+    has_letter_or_digit = False
+    for ch in keyword:
+        code = ord(ch)
+        letter = (0x41 <= code <= 0x5A) or (0x61 <= code <= 0x7A)
+        digit = 0x30 <= code <= 0x39
+        if letter or digit:
+            has_letter_or_digit = True
+            continue
+        if code in (0x20, 0x2D, 0x2E, 0x2B, 0x5F):
+            continue
+        return False
+    return has_letter_or_digit
+
+
+def sub_is_ascii_alnum(ch):
+    code = ord(ch)
+    return (0x30 <= code <= 0x39) or (0x41 <= code <= 0x5A) or (0x61 <= code <= 0x7A)
+
+
+def sub_contains(keyword, haystack):
+    if not keyword or not haystack:
+        return False
+    if not sub_is_ascii_word(keyword):
+        return keyword in haystack
+    start = 0
+    while True:
+        index = haystack.find(keyword, start)
+        if index < 0:
+            return False
+        before_ok = index == 0 or not sub_is_ascii_alnum(haystack[index - 1])
+        end = index + len(keyword)
+        after_ok = end == len(haystack) or not sub_is_ascii_alnum(haystack[end])
+        if before_ok and after_ok:
+            return True
+        start = end
+
+
+def sub_scores(title, summary):
+    normalized_title = sub_normalize(title)
+    normalized_summary = sub_normalize(summary)
+    scores = {topic: 0 for topic in SUB_TOPICS}
+    for keyword, topic in SUB_LEXICON:
+        normalized = sub_normalize(keyword)
+        if not normalized:
+            continue
+        score = 0
+        if sub_contains(normalized, normalized_title):
+            score += 3
+        if sub_contains(normalized, normalized_summary):
+            score += 1
+        if score:
+            scores[topic] += score
+    return scores
+
+
+def sub_classify(title, summary):
+    scores = sub_scores(title, summary)
+    best = "peripheral"
+    best_score = 0
+    for topic in SUB_TOPICS:
+        score = scores.get(topic, 0)
+        if score > best_score:
+            best = topic
+            best_score = score
+    return "peripheral" if best_score == 0 else best
+
+
+def sub_string(value):
+    return value if isinstance(value, str) else None
+
+
+def sub_int(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
+
+
+def sub_is_http_url(raw):
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return False
+    return parts.scheme.lower() in ("http", "https") and bool(parts.hostname)
+
+
+def sub_extract_biz(raw):
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in ("http", "https"):
+        return None
+    host = (parts.hostname or "").lower()
+    if host != "mp.weixin.qq.com" and not host.endswith(".mp.weixin.qq.com"):
+        return None
+    # 不用 parse_qs：它会把 `+` 当成空格，而 URLComponents 不会。
+    for part in parts.query.split("&"):
+        if not part:
+            continue
+        key, _, value = part.partition("=")
+        if unquote(key) == "__biz":
+            value = unquote(value).strip()
+            if value:
+                return value
+    return None
+
+
+def sub_normalize_route(raw):
+    route = raw.strip()
+    if not route or not route.startswith("/bilibili/"):
+        return None
+    if "://" in route or route.startswith("//") or ".." in route or "#" in route:
+        return None
+    if "?" in route and not route.split("?", 1)[0].startswith("/bilibili/"):
+        return None
+    while len(route) > 1 and route.endswith("/"):
+        route = route[:-1]
+    return route
+
+
+def sub_valid_uid(uid):
+    if not uid:
+        return False
+    for ch in uid:
+        code = ord(ch)
+        letter = (0x41 <= code <= 0x5A) or (0x61 <= code <= 0x7A)
+        digit = 0x30 <= code <= 0x39
+        if letter or digit or code in (0x5F, 0x2D):
+            continue
+        return False
+    return True
+
+
+def sub_parse_config(text):
+    root = json.loads(text)
+    if not isinstance(root, dict):
+        raise ValueError("not a JSON object")
+    warnings = []
+    version = sub_int(root.get("version"))
+    if version is None:
+        version = sub_int(root.get("schemaVersion"))
+    if version is None:
+        version = 1
+    if version > 1:
+        warnings.append("配置版本是 %d，比 App 认识的新" % version)
+
+    seen = set()
+    wechat = []
+    bilibili = []
+
+    raw_wechat = root.get("wechat")
+    if isinstance(raw_wechat, list):
+        for index, entry in enumerate(raw_wechat):
+            if not isinstance(entry, dict):
+                warnings.append("wechat 第 %d 条不是对象" % (index + 1))
+                continue
+            name = (sub_string(entry.get("name")) or "").strip()
+            raw_url = (sub_string(entry.get("url")) or "").strip()
+            biz = (sub_string(entry.get("biz")) or "").strip() or None
+            if raw_url:
+                if sub_is_http_url(raw_url):
+                    url = raw_url
+                elif biz:
+                    url = None
+                else:
+                    warnings.append("wechat 第 %d 条 url 不是 http(s)" % (index + 1))
+                    continue
+            else:
+                url = None
+            if not url and not biz:
+                warnings.append("wechat 第 %d 条缺 biz/url" % (index + 1))
+                continue
+            resolved_biz = biz or sub_extract_biz(url or "")
+            identity = resolved_biz or url or ""
+            if not identity:
+                warnings.append("wechat 第 %d 条取不出 id" % (index + 1))
+                continue
+            source_id = "wechat:" + identity
+            if source_id in seen:
+                warnings.append("wechat 第 %d 条重复" % (index + 1))
+                continue
+            seen.add(source_id)
+            wechat.append({
+                "id": source_id,
+                "name": name,
+                "url": url,
+                "biz": resolved_biz,
+                "enabled": entry.get("enabled") is not False,
+            })
+    elif raw_wechat is not None:
+        warnings.append("wechat 不是数组")
+
+    raw_bilibili = root.get("bilibili")
+    if isinstance(raw_bilibili, list):
+        for index, entry in enumerate(raw_bilibili):
+            if not isinstance(entry, dict):
+                warnings.append("bilibili 第 %d 条不是对象" % (index + 1))
+                continue
+            name = (sub_string(entry.get("name")) or "").strip()
+            route = (sub_string(entry.get("route")) or "").strip()
+            uid = (sub_string(entry.get("uid")) or "").strip()
+            if route:
+                route = sub_normalize_route(route)
+                if not route:
+                    warnings.append("bilibili 第 %d 条 route 不合法" % (index + 1))
+                    continue
+            elif uid:
+                if not sub_valid_uid(uid):
+                    warnings.append("bilibili 第 %d 条 uid 非法" % (index + 1))
+                    continue
+                route = "/bilibili/user/video/" + uid
+            else:
+                warnings.append("bilibili 第 %d 条缺 route/uid" % (index + 1))
+                continue
+            source_id = "bilibili:" + route
+            if source_id in seen:
+                warnings.append("bilibili 第 %d 条重复" % (index + 1))
+                continue
+            seen.add(source_id)
+            bilibili.append({
+                "id": source_id,
+                "name": name,
+                "route": route,
+                "enabled": entry.get("enabled") is not False,
+            })
+    elif raw_bilibili is not None:
+        warnings.append("bilibili 不是数组")
+
+    total = len(wechat) + len(bilibili)
+    if total > 50:
+        warnings.append("信源超过 50 条")
+        wechat = wechat[:50]
+        bilibili = bilibili[:max(0, 50 - len(wechat))]
+
+    return wechat, bilibili, warnings
+
+
+def sub_collapse(text):
+    return " ".join(part for part in text.split() if part)
+
+
+def sub_summary(html, limit=2000):
+    return sub_collapse(plain_text(html))[:limit]
+
+
+def sub_clean_title(raw):
+    return sub_collapse(decode_entities(raw))
+
+
+SUB_COVER_PATTERN = re.compile(
+    r"""<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))""",
+    re.IGNORECASE,
+)
+
+
+def sub_normalize_cover(raw, base):
+    value = raw.strip()
+    if not value:
+        return None
+    if value.startswith("//"):
+        return "https:" + value
+    parts = urlsplit(value)
+    if parts.scheme.lower() in ("http", "https") and parts.hostname:
+        return value
+    if base:
+        joined = urljoin(base, value)
+        parts = urlsplit(joined)
+        if parts.scheme.lower() in ("http", "https") and parts.hostname:
+            return joined
+    return None
+
+
+def sub_cover(html, base):
+    match = SUB_COVER_PATTERN.search(html)
+    if not match:
+        return None
+    value = match.group(1) or match.group(2) or match.group(3)
+    return sub_normalize_cover(value, base)
+
+
+def sub_parse_rss_date(raw):
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        value = parsedate_to_datetime(text)
+        if value is not None:
+            return value
+    except (TypeError, ValueError):
+        pass
+    try:
+        return datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def sub_parse_wechat_date(raw):
+    text = (raw or "").strip()
+    if not text:
+        return None
+    # 只有带时区的真 ISO8601 才走这条；`2026-10-20 09:30:00` 是公众号格式，
+    # 必须落到下面的北京时间分支（否则会得到 naive datetime，和 Swift 分叉）。
+    if "T" in text:
+        try:
+            value = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if value.tzinfo is not None:
+                return value
+        except ValueError:
+            pass
+    if text.isdigit():
+        value = int(text)
+        if len(text) >= 13:
+            return datetime.datetime.fromtimestamp(value / 1000, tz=BEIJING)
+        if len(text) >= 9:
+            return datetime.datetime.fromtimestamp(value, tz=BEIJING)
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+                "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d"):
+        try:
+            return datetime.datetime.strptime(text, fmt).replace(tzinfo=BEIJING)
+        except ValueError:
+            pass
+    return None
+
+
+def sub_fnv1a64_hex(text):
+    value = 0xCBF29CE484222325
+    for byte in text.encode("utf-8"):
+        value ^= byte
+        value = (value * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return "%016x" % value
+
+
+def sub_item_id(kind, source_id, raw_id, link, title, published):
+    raw_id = (raw_id or "").strip()
+    if raw_id:
+        return kind + ":" + raw_id
+    timestamp = str(int(published.timestamp() * 1000)) if published is not None else ""
+    seed = "|".join([kind, source_id, title, timestamp, link])
+    return kind + ":hash:" + sub_fnv1a64_hex(seed)
+
+
+def sub_parse_dajiala(text, source_id, source_name):
+    try:
+        root = json.loads(text)
+    except ValueError:
+        return [], "decoding", "Dajiala 返回的不是 JSON"
+    if isinstance(root, list):
+        rows = root
+        top = None
+    elif isinstance(root, dict):
+        top = root
+        code = sub_int(root.get("code", root.get("status", 0))) or 0
+        message = (sub_string(root.get("msg")) or sub_string(root.get("message"))
+                   or sub_string(root.get("error")) or "")
+        if code == -1:
+            return [], "rateLimited", "请求太快"
+        if code == 10002:
+            return [], "badKey", "Dajiala Key 无效"
+        if code == 20001:
+            return [], "insufficientBalance", "余额不足"
+        if code == 20003:
+            return [], "invalidConfig", "链接里有未编码的 &"
+        if code not in (0, 200):
+            return [], "server", "Dajiala 返回 %s" % code
+        rows = None
+        data = root.get("data")
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            for key in ("list", "articles", "posts", "items", "rows"):
+                if isinstance(data.get(key), list):
+                    rows = data[key]
+                    break
+        if rows is None:
+            for key in ("list", "articles", "posts", "items", "rows"):
+                if isinstance(root.get(key), list):
+                    rows = root[key]
+                    break
+    else:
+        return [], "decoding", "JSON 既不是对象也不是数组"
+
+    if rows is None:
+        keys = ", ".join(sorted(top.keys())) if top else "数组"
+        return [], "decoding", "认不出格式（顶层字段：%s）" % keys
+
+    seen = set()
+    items = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title = sub_clean_title(sub_string(row.get("title")) or sub_string(row.get("name")) or "")
+        link = (sub_string(row.get("url")) or sub_string(row.get("link"))
+                or sub_string(row.get("content_url")) or "").strip()
+        if not title or not link:
+            continue
+        summary_raw = (sub_string(row.get("digest")) or sub_string(row.get("summary"))
+                       or sub_string(row.get("desc")) or sub_string(row.get("description")) or "")
+        summary = sub_summary(summary_raw) if "<" in summary_raw else sub_collapse(
+            decode_entities(summary_raw)
+        )[:2000]
+        time_raw = (sub_string(row.get("public_time")) or sub_string(row.get("publish_time"))
+                    or sub_string(row.get("publishTime")) or sub_string(row.get("post_time"))
+                    or sub_string(row.get("update_time")) or sub_string(row.get("create_time")) or "")
+        published = sub_parse_wechat_date(time_raw)
+        author = (sub_string(row.get("wx_name")) or sub_string(row.get("author"))
+                  or sub_string(row.get("nickname")) or "")
+        display_name = source_name or author or "公众号"
+        raw_id = (sub_string(row.get("hashid")) or sub_string(row.get("appmsgid"))
+                  or sub_string(row.get("id")) or sub_string(row.get("aid"))
+                  or sub_string(row.get("sn")))
+        item_id = sub_item_id("wechat", source_id, raw_id, link, title, published)
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        cover_raw = (sub_string(row.get("cover")) or sub_string(row.get("cover_url"))
+                     or sub_string(row.get("image")) or sub_string(row.get("img")))
+        cover = sub_normalize_cover(cover_raw, link) if cover_raw else None
+        items.append({
+            "id": item_id,
+            "source_id": source_id,
+            "source_name": display_name,
+            "kind": "wechat",
+            "title": title,
+            "summary": summary,
+            "link": link,
+            "cover": cover,
+            "published": published,
+        })
+
+    if rows and not items:
+        return [], "decoding", "返回了 %d 条，但都没有标题或链接" % len(rows)
+    return items, None, None
+
+
+def _sub_local(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+def sub_parse_rss(text, source_id, source_name):
+    raw = text.lstrip("﻿").strip()
+    lower = raw.lower()
+    if not raw:
+        raise ValueError("empty")
+    if lower.startswith(("<!doctype html", "<html", "{", "[")):
+        raise ValueError("not rss")
+    without_declaration = re.sub(r"^<\?xml[^>]*\?>", "", lower).strip()
+    if without_declaration.startswith("<feed"):
+        raise ValueError("atom")
+    if not (lower.startswith("<?xml") or lower.startswith("<rss")):
+        raise ValueError("not rss")
+    root = ET.fromstring(raw)
+    channel = root.find("channel")
+    if channel is None:
+        raise ValueError("no channel")
+    channel_title = ""
+    for child in channel:
+        if _sub_local(child.tag) == "title":
+            channel_title = (child.text or "").strip()
+            break
+
+    display_name = source_name or channel_title or "B 站"
+    seen = set()
+    items = []
+    for item in channel.findall("item"):
+        buffer = {
+            "title": "", "link": "", "description": "", "content": "",
+            "pubDate": "", "guid": "", "author": "", "cover": None,
+        }
+        for child in item:
+            local = _sub_local(child.tag).lower()
+            if local == "title":
+                buffer["title"] = child.text or ""
+            elif local == "link":
+                buffer["link"] = child.text or ""
+            elif local == "description":
+                buffer["description"] = child.text or ""
+            elif local == "encoded":
+                buffer["content"] = child.text or ""
+            elif local == "pubdate":
+                buffer["pubDate"] = child.text or ""
+            elif local == "guid":
+                buffer["guid"] = child.text or ""
+            elif local in ("author", "creator") and not buffer["author"]:
+                buffer["author"] = child.text or ""
+            elif local in ("thumbnail", "content") and child.attrib.get("url"):
+                buffer["cover"] = child.attrib["url"]
+            elif local == "enclosure":
+                if (child.attrib.get("type") or "").lower().startswith("image/"):
+                    buffer["cover"] = child.attrib.get("url")
+
+        title = sub_clean_title(buffer["title"])
+        if not title:
+            continue
+        link = buffer["link"].strip()
+        description = buffer["description"] or buffer["content"]
+        published = sub_parse_rss_date(buffer["pubDate"])
+        item_id = sub_item_id(
+            "bilibili", source_id,
+            buffer["guid"] or link, link, title, published
+        )
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        cover = sub_normalize_cover(buffer["cover"], link) if buffer["cover"] else None
+        cover = cover or sub_cover(description, link)
+        items.append({
+            "id": item_id,
+            "source_id": source_id,
+            "source_name": display_name,
+            "kind": "bilibili",
+            "title": title,
+            "summary": sub_summary(description),
+            "link": link,
+            "cover": cover,
+            "published": published,
+        })
+    return {"source_name": display_name, "items": items}
+
+
+def sub_merge(existing, incoming, source_id):
+    return [item for item in existing if item["source_id"] != source_id] + incoming
+
+
+def sub_normalize_items(items, valid_source_ids=None, limit=600):
+    if valid_source_ids is not None:
+        items = [item for item in items if item["source_id"] in valid_source_ids]
+
+    def sort_key(item):
+        published = item.get("published")
+        if published is None:
+            return (1, 0.0, item["title"].encode("utf-8"), item["id"])
+        return (0, -published.timestamp(), item["title"].encode("utf-8"), item["id"])
+
+    ordered = sorted(items, key=sort_key)
+    seen = set()
+    result = []
+    for item in ordered:
+        if item["id"] in seen:
+            continue
+        seen.add(item["id"])
+        result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def sub_sections(items):
+    buckets = {}
+    for item in items:
+        topic = sub_classify(item["title"], item.get("summary", ""))
+        buckets.setdefault(topic, []).append(item)
+    return [(topic, buckets[topic]) for topic in SUB_TOPICS if buckets.get(topic)]
+
+
+def sub_is_due(last, now, floor):
+    if last is None:
+        return True
+    return (now - last).total_seconds() >= floor
+
+
+def sub_next_dajiala_delay(last, now):
+    if last is None:
+        return 0.0
+    return max(0.0, 0.5 - (now - last).total_seconds())
+
+
+def sub_dt(seconds):
+    return datetime.datetime.fromtimestamp(seconds, tz=datetime.timezone.utc)
+
+
 def run():
     print("== 镜像 1/2：/hot 页面文本 → 热度指数、涨跌、徽章 ==")
     text = fixture_text("hot-page.txt")
@@ -3243,6 +3902,218 @@ def run():
                 got_id = report_item_id(item_link)
                 check(got_id is not None and "/" not in got_id,
                       "%s 里的条目链接能取出 id" % item_fix)
+
+    print("")
+    print("== 镜像 21：订阅分类器 ==")
+    lexicon_seen = set()
+    for keyword, _ in SUB_LEXICON:
+        check(keyword != "" and keyword == keyword.strip(),
+              "订阅词库关键词非空且无两端空白：%r" % keyword)
+        check(keyword not in lexicon_seen, "订阅词库关键词不重复：%r" % keyword)
+        lexicon_seen.add(keyword)
+    for case in fixture_json("subscription-classify.json"):
+        check_eq(
+            sub_classify(case["title"], case["summary"]),
+            case["expected"],
+            "分类「%s」" % case["title"],
+        )
+    check_eq(sub_classify("芯片", "睡眠 营养 饮食"), "tech", "分类平分按 allCases 顺序")
+    check_eq(sub_classify("again and again", ""), "peripheral", "分类 ASCII 词边界")
+    check_eq(sub_classify("ＡＩ 手机", ""), "tech", "分类全角折叠")
+
+    print("")
+    print("== 镜像 22：订阅配置 / RSS / Dajiala / 稳定 id / 刷新门槛 ==")
+    wechat_sources, bilibili_sources, config_warnings = sub_parse_config(
+        fixture_text("subscription-config.json")
+    )
+    check_eq(len(wechat_sources), 3, "配置：公众号坏条目/重复/非对象都要跳过")
+    check_eq(len(bilibili_sources), 3, "配置：B 站坏路由/越界/重复都要跳过")
+    check_eq(
+        {source["id"] for source in wechat_sources + bilibili_sources},
+        {
+            "wechat:MzkxMjUwNzA4NQ==",
+            "wechat:MzkxOther==",
+            "wechat:https://mp.weixin.qq.com/s/ghi",
+            "bilibili:/bilibili/user/video/946974",
+            "bilibili:/bilibili/user/video/123456?limit=10",
+            "bilibili:/bilibili/user/video/999",
+        },
+        "配置：稳定 id",
+    )
+    check(
+        not [s for s in wechat_sources if s["id"] == "wechat:MzkxOther=="][0]["enabled"],
+        "配置：字面量 false 才停用",
+    )
+    check(any("配置版本" in warning for warning in config_warnings), "配置：版本警告")
+    check(any("route 不合法" in warning for warning in config_warnings), "配置：坏路由警告")
+    check_eq(
+        sub_extract_biz(
+            "https://mp.weixin.qq.com/s/x?__biz=MzkxMjUwNzA4NQ%3D%3D&mid=1"
+        ),
+        "MzkxMjUwNzA4NQ==",
+        "配置：__biz 百分号解码",
+    )
+    check_eq(
+        sub_extract_biz("https://example.com/s?__biz=abc"),
+        None,
+        "配置：__biz 只认 mp.weixin.qq.com",
+    )
+    check_eq(
+        sub_normalize_route("/bilibili/user/video/1?limit=10"),
+        "/bilibili/user/video/1?limit=10",
+        "配置：允许查询串",
+    )
+    check_eq(
+        sub_normalize_route("https://evil.example.com/bilibili/user/video/1"),
+        None,
+        "配置：拒绝完整 URL",
+    )
+    check_eq(
+        sub_normalize_route("/bilibili/../../etc/passwd"),
+        None,
+        "配置：拒绝越界",
+    )
+    cap_entries = [{"name": "UP %d" % i, "uid": str(i)} for i in range(60)]
+    _, capped_bilibili, cap_warnings = sub_parse_config(
+        json.dumps({"bilibili": cap_entries})
+    )
+    check_eq(len(capped_bilibili), 50, "配置：信源封顶 50")
+    check(any("超过" in warning for warning in cap_warnings), "配置：封顶警告")
+    _, malformed_bilibili, malformed_warnings = sub_parse_config(
+        json.dumps({"wechat": "oops", "bilibili": [{"name": "UP", "uid": "1"}]})
+    )
+    check_eq(len(malformed_bilibili), 1, "配置：一个栏目写坏不拖垮另一个")
+    check(
+        any("wechat 不是数组" in warning for warning in malformed_warnings),
+        "配置：栏目类型错误有警告",
+    )
+
+    rss = sub_parse_rss(
+        fixture_text("rsshub-bilibili-video.xml"),
+        "bilibili:/bilibili/user/video/946974",
+        "",
+    )
+    check_eq(rss["source_name"], "影视飓风", "RSS：channel title")
+    check_eq(len(rss["items"]), 3, "RSS：三条 item")
+    first = rss["items"][0]
+    check_eq(first["title"], "我们花了一百万，拍了一支短片", "RSS：CDATA 标题")
+    check_eq(first["summary"], "这支短片的幕后故事。", "RSS：描述去 HTML")
+    check_eq(first["cover"], "https://i0.hdslb.com/bfs/archive/cover1.jpg", "RSS：// 封面补 https")
+    check_eq(first["published"].isoformat(), "2026-10-20T10:00:00+00:00", "RSS：GMT 日期")
+    second = rss["items"][1]
+    check_eq(second["title"], "AI 与影像 & 未来", "RSS：实体解码")
+    check_eq(second["cover"], "https://i0.hdslb.com/bfs/archive/cover2.jpg", "RSS：media:thumbnail")
+    check_eq(second["published"].isoformat(), "2026-10-21T18:30:00+08:00", "RSS：+0800 日期")
+    third = rss["items"][2]
+    check(third["published"] is None, "RSS：非法日期为 None")
+    check_eq(third["summary"], "", "RSS：空描述")
+    check(third["cover"] is None, "RSS：无封面")
+
+    dajiala_items, dajiala_error, _ = sub_parse_dajiala(
+        fixture_text("dajiala-post-history.json"), "wechat:test", ""
+    )
+    check_eq(dajiala_error, None, "Dajiala：成功夹具")
+    check_eq(len(dajiala_items), 2, "Dajiala：缺链接的条目跳过")
+    check_eq(dajiala_items[0]["title"], "AI 产品经理的下一步", "Dajiala：标题")
+    check_eq(dajiala_items[0]["source_name"], "某产品号", "Dajiala：wx_name 回填")
+    check_eq(
+        dajiala_items[0]["published"].isoformat(),
+        "2026-10-20T09:30:00+08:00",
+        "Dajiala：北京时间",
+    )
+    check_eq(dajiala_items[1]["summary"], "睡眠不足会影响免疫力。", "Dajiala：HTML 摘要")
+    for fixture_name, expected_kind in [
+        ("dajiala-error-qps.json", "rateLimited"),
+        ("dajiala-error-10002.json", "badKey"),
+        ("dajiala-error-balance.json", "insufficientBalance"),
+        ("dajiala-unknown-shape.json", "decoding"),
+    ]:
+        _, kind, _ = sub_parse_dajiala(fixture_text(fixture_name), "wechat:test", "")
+        check_eq(kind, expected_kind, "Dajiala 错误：%s" % fixture_name)
+    _, _, unknown_message = sub_parse_dajiala(
+        fixture_text("dajiala-unknown-shape.json"), "wechat:test", ""
+    )
+    check("payload" in unknown_message, "Dajiala 未知结构要带顶层字段名")
+
+    check_eq(sub_fnv1a64_hex("hello"), "a430d84680aabd0b", "FNV-1a：hello")
+    check_eq(sub_fnv1a64_hex(""), "cbf29ce484222325", "FNV-1a：空串")
+    check_eq(
+        sub_item_id("wechat", "wechat:x", "hash-1", "https://mp.weixin.qq.com/s/x", "t", None),
+        "wechat:hash-1",
+        "条目 id：接口给的稳定 id 优先",
+    )
+    fallback_id = sub_item_id(
+        "bilibili", "bilibili:a", None, "https://b23.tv/1", "标题", sub_dt(1000)
+    )
+    check(fallback_id.startswith("bilibili:hash:"), "条目 id：没有稳定 id 时走哈希")
+    check_eq(len(fallback_id), len("bilibili:hash:") + 16, "条目 id：16 位十六进制")
+
+    def sub_dated(item_id, title, seconds):
+        return {
+            "id": item_id,
+            "source_id": "s1",
+            "title": title,
+            "summary": "",
+            "published": sub_dt(seconds),
+        }
+
+    logic_items = [
+        sub_dated("old", "z", 1),
+        sub_dated("newest", "y", 3),
+        sub_dated("tie-b", "b", 2),
+        sub_dated("tie-a", "a", 2),
+        {"id": "undated", "source_id": "s1", "title": "a", "summary": "", "published": None},
+    ]
+    check_eq(
+        [item["id"] for item in sub_normalize_items(logic_items)],
+        ["newest", "tie-a", "tie-b", "old", "undated"],
+        "排序：时间倒序、无时间最后、同时间按标题 UTF-8",
+    )
+    check_eq(
+        [item["id"] for item in sub_normalize_items(logic_items, limit=2)],
+        ["newest", "tie-a"],
+        "截断",
+    )
+    check_eq(
+        [item["id"] for item in sub_normalize_items(logic_items, valid_source_ids={"s1"})],
+        ["newest", "tie-a", "tie-b", "old", "undated"],
+        "剪枝：保留启用源",
+    )
+    check_eq(
+        [item["id"] for item in sub_normalize_items(logic_items, valid_source_ids={"other"})],
+        [],
+        "剪枝：丢掉未启用源",
+    )
+    existing = [
+        sub_dated("a1", "a", 1),
+        {"id": "b1", "source_id": "b", "title": "b", "summary": "", "published": None},
+    ]
+    merged = sub_merge(existing, [sub_dated("a2", "a", 2)], "s1")
+    check_eq({item["id"] for item in merged}, {"a2", "b1"}, "合并只替换指定源")
+
+    grouping_items = [
+        {"id": "tech", "source_id": "s", "title": "AI 芯片", "summary": "", "published": None},
+        {"id": "health", "source_id": "s", "title": "睡眠与营养", "summary": "", "published": None},
+    ]
+    sections = sub_sections(grouping_items)
+    check_eq([topic for topic, _ in sections], ["tech", "health"], "分组顺序固定，空板块不出现")
+
+    now = sub_dt(1000)
+    check(sub_is_due(None, now, 21600), "6h：从没抓过 -> true")
+    check(sub_is_due(now - datetime.timedelta(seconds=21600), now, 21600), "6h：正好到期 -> true")
+    check(not sub_is_due(now - datetime.timedelta(seconds=21599), now, 21600), "6h：差一秒 -> false")
+    check(sub_is_due(now - datetime.timedelta(seconds=61), now, 60), "手动 60s 地板：61s -> true")
+    check(not sub_is_due(now - datetime.timedelta(seconds=59), now, 60), "手动 60s 地板：59s -> false")
+    check_eq(sub_next_dajiala_delay(None, now), 0.0, "Dajiala 间隔：第一次")
+    check(
+        abs(sub_next_dajiala_delay(now - datetime.timedelta(seconds=0.2), now) - 0.3) < 0.0001,
+        "Dajiala 间隔：0.3s",
+    )
+    check_eq(
+        sub_next_dajiala_delay(now - datetime.timedelta(seconds=1), now),
+        0.0,
+        "Dajiala 间隔：已过",
+    )
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)

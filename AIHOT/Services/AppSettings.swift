@@ -31,6 +31,79 @@ enum AppSettings {
     /// 密钥降级存储用的前缀（正常情况走 Keychain）。
     static let aiChatFallbackSecretPrefix = "aihot.aichat.fallback."
 
+    // MARK: - 订阅
+    //
+    // 两个地址都是非敏感项；Dajiala Key 走 Keychain（见 AIChatSecretStore）。
+    // 上次抓取时间戳是**计费闸门**，不是缓存：`clearCache()` 绝不能清它。
+
+    static let subscriptionConfigURLKey = "aihot.subscriptions.configURL"
+    static let subscriptionRSSHubBaseURLKey = "aihot.subscriptions.rsshubBaseURL"
+    /// 上次成功拉到的配置原文（UserDefaults，跨启动、跨清缓存都在）。
+    static let subscriptionConfigCacheKey = "aihot.subscriptions.configCache"
+    /// 上次成功拉配置的时间（`timeIntervalSince1970`），只用于 10 分钟自动节流。
+    static let subscriptionConfigFetchedAtKey = "aihot.subscriptions.configFetchedAt"
+    /// 每个公众号上次发起请求的时间（`timeIntervalSince1970`），用于 6 小时闸门。
+    static let subscriptionWeChatLastAttemptKey = "aihot.subscriptions.wechat.lastAttempt"
+
+    static var subscriptionConfigURL: String {
+        get { UserDefaults.standard.string(forKey: subscriptionConfigURLKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: subscriptionConfigURLKey) }
+    }
+
+    static var subscriptionRSSHubBaseURL: String {
+        get { UserDefaults.standard.string(forKey: subscriptionRSSHubBaseURLKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: subscriptionRSSHubBaseURLKey) }
+    }
+
+    static var subscriptionConfigCache: String? {
+        get { UserDefaults.standard.string(forKey: subscriptionConfigCacheKey) }
+        set {
+            if let newValue = newValue {
+                UserDefaults.standard.set(newValue, forKey: subscriptionConfigCacheKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: subscriptionConfigCacheKey)
+            }
+        }
+    }
+
+    static var subscriptionConfigFetchedAt: Double? {
+        get {
+            guard UserDefaults.standard.object(forKey: subscriptionConfigFetchedAtKey) != nil else {
+                return nil
+            }
+            return UserDefaults.standard.double(forKey: subscriptionConfigFetchedAtKey)
+        }
+        set {
+            if let newValue = newValue {
+                UserDefaults.standard.set(newValue, forKey: subscriptionConfigFetchedAtKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: subscriptionConfigFetchedAtKey)
+            }
+        }
+    }
+
+    /// 用数字而不是 ISO8601 字符串：解析失败会变成「从没抓过」，
+    /// 下一次自动刷新就会又花一次钱。数字读不出来只影响排序，不影响闸门判断。
+    static var subscriptionWeChatLastAttempt: [String: Double] {
+        get {
+            guard let raw = UserDefaults.standard.dictionary(forKey: subscriptionWeChatLastAttemptKey) else {
+                return [:]
+            }
+            var result: [String: Double] = [:]
+            for (key, value) in raw {
+                if let number = value as? Double {
+                    result[key] = number
+                } else if let number = value as? NSNumber {
+                    result[key] = number.doubleValue
+                }
+            }
+            return result
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: subscriptionWeChatLastAttemptKey)
+        }
+    }
+
     static var aiChatProtocol: AIChatProtocol {
         get {
             guard let raw = UserDefaults.standard.string(forKey: aiChatProtocolKey),

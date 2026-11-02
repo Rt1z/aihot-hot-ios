@@ -37,6 +37,18 @@ enum DiagnosticReport {
         var searchDisabled: String = "无"
         /// 每家「填没填 Key」（只说有没有，绝不含内容或长度）。
         var searchKeys: String = "未检查"
+
+        // 订阅
+        var subscriptionCount: Int = 0
+        var subscriptionTopics: String = "-"
+        var subscriptionSources: String = "-"
+        var subscriptionUpdated: String = "-"
+        var subscriptionNotices: String = "无"
+        /// 原始地址；`make` 内部统一过 `hostOnly`。
+        var rsshubBaseURL: String = "-"
+        var configURL: String = "-"
+        /// 只说存在哪，不读内容。
+        var dajialaKeyStorage: String = "-"
     }
 
     static func make(_ input: Input) -> String {
@@ -57,6 +69,16 @@ enum DiagnosticReport {
         lines.append("")
         lines.append("— 收藏 —")
         lines.append("条数：\(input.favoritesCount)")
+
+        lines.append("")
+        lines.append("— 订阅 —")
+        lines.append("条数：\(input.subscriptionCount)（\(input.subscriptionTopics)）")
+        lines.append("信源：\(input.subscriptionSources)")
+        lines.append("更新时间：\(input.subscriptionUpdated)")
+        lines.append("提示：\(input.subscriptionNotices)")
+        lines.append("RSSHub：\(hostLine(input.rsshubBaseURL))")
+        lines.append("配置：\(hostLine(input.configURL))")
+        lines.append("Dajiala Key：\(input.dajialaKeyStorage)")
 
         lines.append("")
         lines.append("— 周报/月报 —")
@@ -80,6 +102,13 @@ enum DiagnosticReport {
         lines.append("")
         lines.append("（此段不含任何 API Key 与完整地址，可直接发给开发者。）")
         return lines.joined(separator: "\n")
+    }
+
+    /// 诊断里的一行地址：没填就说「未配置」，填了只留主机名。
+    private static func hostLine(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "-" else { return "未配置" }
+        return hostOnly(trimmed) + "（仅主机名）"
     }
 
     /// 只保留 `scheme://主机[:端口]`；丢 path / query / fragment（SerpAPI 的 Key
@@ -107,7 +136,12 @@ enum DiagnosticReport {
 
     /// 从各 store / 设置里取现场。**只读，不发请求**。
     @MainActor
-    static func capture(hot: HotTopicsStore, favorites: FavoritesStore, reports: ReportStore) -> String {
+    static func capture(
+        hot: HotTopicsStore,
+        favorites: FavoritesStore,
+        reports: ReportStore,
+        subscriptions: SubscriptionStore
+    ) -> String {
         let info = Bundle.main.infoDictionary
         let appearance = AppSettings.Appearance(
             rawValue: UserDefaults.standard.string(forKey: AppSettings.appearanceKey) ?? ""
@@ -147,6 +181,32 @@ enum DiagnosticReport {
             return "\(kind.title)：最新 \(latest) · 往期 \(state.entries.count) 条 · 更新 \(updated) · 提示 \(notice)"
         }
 
+        // 订阅：条数按板块拆开；提示把配置问题与两条线路分开列。
+        let subscriptionTopics = subscriptions.itemsByTopic
+            .map { "\($0.topic.title) \($0.count)" }
+            .joined(separator: " · ")
+        var subscriptionNoticeParts: [String] = []
+        if let notice = subscriptions.configNotice {
+            subscriptionNoticeParts.append("配置：" + notice.message)
+        }
+        if !subscriptions.configWarnings.isEmpty {
+            subscriptionNoticeParts.append("跳过条目：" + subscriptions.configWarnings.joined(separator: "；"))
+        }
+        if let notice = subscriptions.notice(for: .wechat) {
+            subscriptionNoticeParts.append("公众号：" + notice.message)
+        }
+        if let notice = subscriptions.notice(for: .bilibili) {
+            subscriptionNoticeParts.append("B 站：" + notice.message)
+        }
+        let dajialaStorage: String
+        if secret.dajialaKey().isEmpty {
+            dajialaStorage = "未保存"
+        } else if secret.isUsingDajialaFallback() {
+            dajialaStorage = "已降级到应用内存储"
+        } else {
+            dajialaStorage = "在钥匙串"
+        }
+
         let input = Input(
             appVersion: info?["CFBundleShortVersionString"] as? String ?? "-",
             build: info?["CFBundleVersion"] as? String ?? "-",
@@ -169,7 +229,19 @@ enum DiagnosticReport {
             // 「为什么没联网」最常见的答案就在这一行；只报有无，不报内容
             searchKeys: order
                 .map { "\($0.title) \(secret.searchKey(for: $0).isEmpty ? "未填" : "已填")" }
-                .joined(separator: " · ")
+                .joined(separator: " · "),
+            subscriptionCount: subscriptions.items.count,
+            subscriptionTopics: subscriptionTopics.isEmpty ? "无" : subscriptionTopics,
+            subscriptionSources: "公众号 \(subscriptions.enabledWeChatCount) 个 · B 站 \(subscriptions.enabledBilibiliCount) 个",
+            subscriptionUpdated: subscriptions.lastUpdatedAt.map {
+                RelativeTime.absoluteShort($0)
+            } ?? "未知",
+            subscriptionNotices: subscriptionNoticeParts.isEmpty
+                ? "无"
+                : subscriptionNoticeParts.joined(separator: "；"),
+            rsshubBaseURL: AppSettings.subscriptionRSSHubBaseURL,
+            configURL: AppSettings.subscriptionConfigURL,
+            dajialaKeyStorage: dajialaStorage
         )
         return make(input)
     }

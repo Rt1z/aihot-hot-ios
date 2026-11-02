@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:media="http://search.yahoo.com/mrss/"
+     xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>影视飓风</title>
+    <link>https://space.bilibili.com/946974</link>
+    <description>影视飓风的 B 站投稿</description>
+    <atom:link href="https://rsshub.local/bilibili/user/video/946974" rel="self" type="application/rss+xml" />
+    <item>
+      <title><![CDATA[我们花了一百万，拍了一支短片]]></title>
+      <link>https://www.bilibili.com/video/BV1abc</link>
+      <description><![CDATA[<p>这支短片的幕后故事。</p><img src="//i0.hdslb.com/bfs/archive/cover1.jpg">]]></description>
+      <pubDate>Mon, 20 Oct 2026 10:00:00 GMT</pubDate>
+      <guid isPermaLink="false">BV1abc</guid>
+      <author>影视飓风</author>
+    </item>
+    <item>
+      <title>AI 与影像 &amp; 未来</title>
+      <link>https://www.bilibili.com/video/BV2def</link>
+      <description><![CDATA[<p>第二期。</p>]]></description>
+      <pubDate>Tue, 21 Oct 2026 18:30:00 +0800</pubDate>
+      <media:thumbnail url="https://i0.hdslb.com/bfs/archive/cover2.jpg" />
+      <dc:creator>影视飓风</dc:creator>
+    </item>
+    <item>
+      <title>没有封面的第三期</title>
+      <link>https://www.bilibili.com/video/BV3ghi</link>
+      <description></description>
+      <pubDate>not a date</pubDate>
+    </item>
+  </channel>
+</rss>

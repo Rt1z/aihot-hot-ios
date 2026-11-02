@@ -1,28 +1,21 @@
 import SwiftUI
 
-/// 收藏 tab。
+/// 收藏列表（从「个人」push 进来，不再是一个 tab 根）。
 ///
 /// 用 `List` 而不是榜单页那套 `ScrollView` + 卡片，是为了拿到系统自带的左滑操作。
 /// 行内容本身仍复用同一套 Theme 与组件。
+///
+/// **不要在这里加 `NavigationStack`**：外层 `ProfileTabView` 已经有一个；
+/// 套两层会得到空白页或返回按钮失灵。`HotTopic` 的 destination 也注册在个人页的栈根。
 struct FavoritesListView: View {
 
     @ObservedObject var hot: HotTopicsStore
     @ObservedObject var favorites: FavoritesStore
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("收藏")
-                .navigationBarTitleDisplayMode(.large)
-                .navigationDestination(for: HotTopic.self) { item in
-                    StoryDetailView(
-                        item: item,
-                        favorites: favorites,
-                        prefetchedDigest: hot.digest(for: item)
-                    )
-                }
-        }
-        .tint(Theme.accent)
+        content
+            .navigationTitle("收藏")
+            .navigationBarTitleDisplayMode(.large)
     }
 
     @ViewBuilder

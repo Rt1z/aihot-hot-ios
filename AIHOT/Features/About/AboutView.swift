@@ -6,6 +6,7 @@ struct AboutView: View {
     @ObservedObject var store: HotTopicsStore
     @ObservedObject var favorites: FavoritesStore
     @ObservedObject var reports: ReportStore
+    @ObservedObject var subscriptions: SubscriptionStore
 
     @AppStorage(AppSettings.appearanceKey) private var appearance: String = AppSettings.Appearance.system.rawValue
     @AppStorage(AppSettings.enrichmentKey) private var enrichmentEnabled: Bool = true
@@ -60,11 +61,9 @@ struct AboutView: View {
         return "\(version) (\(build))"
     }
 
+    /// 从「个人」push 进来，**不要再包 NavigationStack**：外层已经有一个。
     var body: some View {
-        NavigationStack {
-            settingsForm
-        }
-        .tint(Theme.accent)
+        settingsForm
     }
 
     private var settingsForm: some View {
@@ -85,6 +84,8 @@ struct AboutView: View {
             } footer: {
                 Text("官方公开接口不提供热度指数、涨跌与爆/新标记，开启后会额外读取一次热点榜页面文本补全这几项；解析失败会自动退回接口字段（来源数、参与者数），不会显示错误数字。")
             }
+
+            SubscriptionSettingsSection(store: subscriptions)
 
             Section {
                 Picker("协议", selection: $aiChatProtocolRaw) {
@@ -212,11 +213,12 @@ struct AboutView: View {
                 Button(role: .destructive) {
                     store.clearCache()
                     reports.clearCache()
+                    subscriptions.clearCache()
                 } label: {
                     Label("清除本地缓存", systemImage: "trash")
                 }
             } footer: {
-                Text("清除后下次启动需要联网重新拉取榜单与周报快照。收藏与对话记录不受影响。")
+                Text("清除后下次启动需要联网重新拉取榜单、周报与订阅快照。收藏、对话记录、订阅地址、Dajiala Key 与公众号的 6 小时计费计时都不受影响。")
             }
 
             Section {
@@ -251,7 +253,8 @@ struct AboutView: View {
                     UIPasteboard.general.string = DiagnosticReport.capture(
                         hot: store,
                         favorites: favorites,
-                        reports: reports
+                        reports: reports,
+                        subscriptions: subscriptions
                     )
                     copiedRunDiagnostics = true
                 } label: {

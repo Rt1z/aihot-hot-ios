@@ -102,4 +102,26 @@ final class DiagnosticReportTests: XCTestCase {
         let text = DiagnosticReport.make(DiagnosticReport.Input())
         XCTAssertTrue(text.contains("暂无数据"))
     }
+
+    /// 订阅的两条地址同样只出主机名；Dajiala Key 只报「存在哪」。
+    func testSubscriptionLinesRedactHostsAndNeverIncludeSecrets() {
+        var input = DiagnosticReport.Input()
+        input.subscriptionCount = 7
+        input.subscriptionTopics = "科技 3 · 健康 2 · 周边 2"
+        input.subscriptionSources = "公众号 2 个 · B 站 1 个"
+        input.subscriptionUpdated = "2026-11-02 10:00"
+        input.subscriptionNotices = "公众号：还没填 Dajiala Key"
+        input.rsshubBaseURL = "http://192.168.1.9:1200/bilibili/user/video/1?code=SECRET"
+        input.configURL = "http://192.168.1.9:8088/subscriptions.json?token=SECRET"
+        input.dajialaKeyStorage = "在钥匙串"
+
+        let text = DiagnosticReport.make(input)
+        XCTAssertTrue(text.contains("— 订阅 —"))
+        XCTAssertTrue(text.contains("条数：7（科技 3 · 健康 2 · 周边 2）"))
+        XCTAssertTrue(text.contains("http://192.168.1.9:1200（仅主机名）"))
+        XCTAssertTrue(text.contains("http://192.168.1.9:8088（仅主机名）"))
+        XCTAssertTrue(text.contains("Dajiala Key：在钥匙串"))
+        XCTAssertFalse(text.contains("SECRET"), "查询串必须整段丢掉")
+        XCTAssertFalse(text.contains("subscriptions.json"), "路径也不能留")
+    }
 }

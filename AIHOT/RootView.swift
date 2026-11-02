@@ -11,29 +11,55 @@ struct RootView: View {
     @StateObject private var favorites = FavoritesStore()
     @StateObject private var leaderboard = LeaderboardStore()
     @StateObject private var reports = ReportStore()
+    @StateObject private var subscriptions = SubscriptionStore()
+
+    private enum Tab: Hashable {
+        case hot
+        case report
+        case leaderboard
+        case subscriptions
+        case profile
+    }
+
+    /// 显式 selection：订阅页要据此判断「我现在是不是被选中」，
+    /// 未选中时不做自动刷新（公众号按次计费，不能让 TabView 一启动就替用户花钱）。
+    @State private var selectedTab: Tab = .hot
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             HotListView(store: hot, favorites: favorites)
                 .tabItem { Label("热点", systemImage: "flame") }
+                .tag(Tab.hot)
 
             ReportTabView(store: reports)
                 .tabItem { Label("周报", systemImage: "newspaper") }
                 // 有新一期就挂「新」；两边期号缺失时 `ReportUnread` 一律返回 false
                 // （新装用户第一次看到某一期只补基线，不挂角标）。
                 .badge(reportBadge)
+                .tag(Tab.report)
 
             LeaderboardView(store: leaderboard)
                 .tabItem { Label("模型榜", systemImage: "chart.bar.xaxis") }
+                .tag(Tab.leaderboard)
 
-            FavoritesListView(hot: hot, favorites: favorites)
-                .tabItem { Label("收藏", systemImage: "bookmark") }
+            SubscriptionTabView(
+                store: subscriptions,
+                isActive: selectedTab == .subscriptions
+            )
+            .tabItem { Label("订阅", systemImage: "square.stack") }
+            .tag(Tab.subscriptions)
 
-            // 顺序：热点 | 周报 | 模型榜 | 收藏 | 设置，「设置」保持最后是 iOS 惯例。
-            // 注意 AIHOTUITests 按下标取「设置」Tab，只要它还在最后就不必改 boundBy；
-            // 插入/调换**设置之前**的 Tab 才要同步改那边的 boundBy。
-            AboutView(store: hot, favorites: favorites, reports: reports)
-                .tabItem { Label("设置", systemImage: "gearshape") }
+            // 顺序：热点 | 周报 | 模型榜 | 订阅 | 个人，「个人」保持最后是 iOS 惯例。
+            // AIHOTUITests 仍按下标 4 取「个人」；但设置现在是个人页里的二级页，
+            // 用例要多点一步（见 SearchToolSettingsUITests.openSearchToolsSection）。
+            ProfileTabView(
+                hot: hot,
+                favorites: favorites,
+                reports: reports,
+                subscriptions: subscriptions
+            )
+            .tabItem { Label("个人", systemImage: "person.crop.circle") }
+            .tag(Tab.profile)
         }
         .tint(Theme.accent)
         .preferredColorScheme(colorScheme)

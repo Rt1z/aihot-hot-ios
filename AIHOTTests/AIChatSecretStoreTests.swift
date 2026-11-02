@@ -100,8 +100,8 @@ final class AIChatSecretStoreTests: XCTestCase {
         XCTAssertEqual(store.key(for: .anthropicMessages), "sk-trim", "粘贴密钥时最容易带上换行")
     }
 
-    /// 七槽互不相干：两条对话协议 + 五家搜索，键控 API 各存各的。
-    func testStoresAllSevenSlotsSeparately() {
+    /// 八槽互不相干：两条对话协议 + 五家搜索 + 订阅的 Dajiala。
+    func testStoresAllEightSlotsSeparately() {
         let (name, defaults) = makeSuite()
         defer { defaults.removePersistentDomain(forName: name) }
 
@@ -113,6 +113,7 @@ final class AIChatSecretStoreTests: XCTestCase {
         for (index, provider) in AppSettings.SearchToolProvider.allCases.enumerated() {
             store.setSearchKey("key-\(index)", for: provider)
         }
+        store.setDajialaKey("dajiala-key")
 
         XCTAssertEqual(store.key(for: .anthropicMessages), "sk-llm")
         XCTAssertEqual(store.key(for: .openAICompatible), "sk-oai")
@@ -120,11 +121,12 @@ final class AIChatSecretStoreTests: XCTestCase {
             XCTAssertEqual(store.searchKey(for: provider), "key-\(index)",
                            "\(provider.title) 的槽位不许串")
         }
-        XCTAssertEqual(backend.storage.count, 7, "七份各占一个 account")
+        XCTAssertEqual(store.dajialaKey(), "dajiala-key", "订阅的 Key 不许串到搜索/对话")
+        XCTAssertEqual(backend.storage.count, 8, "八份各占一个 account")
     }
 
-    /// clear() 必须把**七份**密钥全清掉：两条协议 + 五家搜索。
-    func testClearRemovesAllSevenSlots() {
+    /// clear() 必须把**八份**密钥全清掉：两条协议 + 五家搜索 + Dajiala。
+    func testClearRemovesAllEightSlots() {
         let (name, defaults) = makeSuite()
         defer { defaults.removePersistentDomain(forName: name) }
 
@@ -135,6 +137,7 @@ final class AIChatSecretStoreTests: XCTestCase {
         for (index, provider) in AppSettings.SearchToolProvider.allCases.enumerated() {
             store.setSearchKey("key-\(index)", for: provider)
         }
+        store.setDajialaKey("dajiala")
 
         store.clear()
         XCTAssertEqual(store.key(for: .anthropicMessages), "")
@@ -142,7 +145,29 @@ final class AIChatSecretStoreTests: XCTestCase {
         for provider in AppSettings.SearchToolProvider.allCases {
             XCTAssertEqual(store.searchKey(for: provider), "", "\(provider.title) 也要清掉")
         }
+        XCTAssertEqual(store.dajialaKey(), "", "Dajiala 也要清掉")
         XCTAssertTrue(backend.storage.isEmpty)
+    }
+
+    /// Dajiala 的降级标记独立：它降级不该影响搜索/对话。
+    func testDajialaFallbackIsIndependent() {
+        let (name, defaults) = makeSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let backend = FakeSecretBackend()
+        backend.failWrites = true
+        let store = AIChatSecretStore(backend: backend, defaults: defaults)
+
+        XCTAssertFalse(store.setDajialaKey("dajiala"))
+        XCTAssertEqual(store.dajialaKey(), "dajiala")
+        XCTAssertTrue(store.isUsingDajialaFallback())
+        XCTAssertFalse(store.isUsingFallback(for: .anthropicMessages), "没写过的不许显示降级")
+        XCTAssertFalse(store.isUsingSearchFallback(for: .tavily))
+
+        backend.failWrites = false
+        XCTAssertTrue(store.setDajialaKey("dajiala-2"))
+        XCTAssertFalse(store.isUsingDajialaFallback())
+        XCTAssertEqual(store.dajialaKey(), "dajiala-2")
     }
 
     /// 每家的降级标记各自独立：一家降级不该让别家也显示「已降级」。

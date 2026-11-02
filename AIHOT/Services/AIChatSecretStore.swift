@@ -9,8 +9,8 @@ protocol AIChatSecretBackend {
     func delete(account: String)
 }
 
-/// API Key 的存放处。**七份**：两条对话协议各一份，五家搜索各一份
-/// （AnySearch 那份可选、可匿名；其余四家**必填** —— 没有匿名模式）。
+/// API Key 的存放处。**八份**：两条对话协议各一份，五家搜索各一份，
+/// 订阅的 Dajiala 一份（AnySearch 那份可选、可匿名；其余四家**必填** —— 没有匿名模式）。
 /// 搜索的 Key 用**键控 API**（`searchKey(for:)`）而不是每家一组方法：
 /// 五家 × 三件套 = 15 个近似方法，键控加一家只加一个 case。
 ///
@@ -67,6 +67,22 @@ final class AIChatSecretStore {
         usedFallback(account: Self.searchAccount(for: provider))
     }
 
+    // MARK: - 订阅（Dajiala）
+
+    func dajialaKey() -> String {
+        read(account: Self.dajialaAccount)
+    }
+
+    /// 返回 true 表示写进了 Keychain；false 表示降级到了 UserDefaults（界面要说明）。
+    @discardableResult
+    func setDajialaKey(_ value: String) -> Bool {
+        write(value, account: Self.dajialaAccount)
+    }
+
+    func isUsingDajialaFallback() -> Bool {
+        usedFallback(account: Self.dajialaAccount)
+    }
+
     func clear() {
         for chatProtocol in AIChatProtocol.allCases {
             clearAccount(Self.account(for: chatProtocol))
@@ -74,6 +90,7 @@ final class AIChatSecretStore {
         for provider in AppSettings.SearchToolProvider.allCases {
             clearAccount(Self.searchAccount(for: provider))
         }
+        clearAccount(Self.dajialaAccount)
     }
 
     // MARK: - 内部
@@ -133,6 +150,10 @@ final class AIChatSecretStore {
         case .serper: return "aihot.serper"
         }
     }
+
+    /// 订阅用的第 8 个槽位。沿用同一个 Keychain service / 降级路径，
+    /// 不再复制一套钥匙串代码。
+    private static let dajialaAccount = "aihot.dajiala"
 
     private static func fallbackKey(_ account: String) -> String {
         AppSettings.aiChatFallbackSecretPrefix + account

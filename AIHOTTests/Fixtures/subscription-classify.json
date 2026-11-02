@@ -1,0 +1,87 @@
+[
+  {
+    "title": "OpenAI 发布新一代大模型",
+    "summary": "",
+    "expected": "tech"
+  },
+  {
+    "title": "AI 芯片进入 2nm",
+    "summary": "",
+    "expected": "tech"
+  },
+  {
+    "title": "GPT-5 和 Claude 的对比",
+    "summary": "",
+    "expected": "tech"
+  },
+  {
+    "title": "睡眠不足如何影响免疫力",
+    "summary": "",
+    "expected": "health"
+  },
+  {
+    "title": "如何用复盘提升学习效率",
+    "summary": "",
+    "expected": "growth"
+  },
+  {
+    "title": "面试官最看重的三件事",
+    "summary": "",
+    "expected": "career"
+  },
+  {
+    "title": "2026 年最值得买的降噪耳机",
+    "summary": "",
+    "expected": "peripheral"
+  },
+  {
+    "title": "运动与芯片",
+    "summary": "",
+    "expected": "tech"
+  },
+  {
+    "title": "今天的天气",
+    "summary": "适合出门散步",
+    "expected": "peripheral"
+  },
+  {
+    "title": "一条没有关键词的标题",
+    "summary": "关于睡眠与饮食",
+    "expected": "health"
+  },
+  {
+    "title": "芯片发布",
+    "summary": "面试与简历",
+    "expected": "tech"
+  },
+  {
+    "title": "ＡＩ 手机",
+    "summary": "",
+    "expected": "tech"
+  },
+  {
+    "title": "openAI 的新动作",
+    "summary": "",
+    "expected": "tech"
+  },
+  {
+    "title": "自动驾驶出租车",
+    "summary": "",
+    "expected": "tech"
+  },
+  {
+    "title": "email marketing 的三个技巧",
+    "summary": "again and again",
+    "expected": "peripheral"
+  },
+  {
+    "title": "We said it again",
+    "summary": "email",
+    "expected": "peripheral"
+  },
+  {
+    "title": "",
+    "summary": "",
+    "expected": "peripheral"
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "wechat": [
+    {
+      "name": "某公众号",
+      "url": "https://mp.weixin.qq.com/s/xxxxxxxx",
+      "biz": "MzkxMjUwNzA4NQ==",
+      "enabled": true
+    }
+  ],
+  "bilibili": [
+    {
+      "name": "影视飓风",
+      "route": "/bilibili/user/video/946974"
+    },
+    {
+      "name": "某 UP 主",
+      "uid": "123456"
+    }
+  ]
+}
