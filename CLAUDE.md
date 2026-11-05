@@ -6,41 +6,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 An iOS (SwiftUI, min iOS 16) native app that re-renders the **热点榜** section of [aihot.news](https://aihot.news) — 10 rows, no browser. It also has a **订阅** tab that aggregates 微信公众号 (paid Dajiala API) and B 站 (a self-hosted RSSHub on the user's Mac), classifying each item into 科技/健康/成长/职业/周边 with local keyword rules; see rule 20. The 「主题」 section is explicitly out of scope. Zero third-party dependencies, zero entitlements (deliberate: the CI output is an *unsigned* IPA side-loaded via AltStore with a free Apple ID, so push/entitlements would break the whole distribution model).
 
-Development happens on Windows; the build happens on GitHub Actions macOS runners. `README.md` is the user-facing doc (install steps, feature-by-feature官网/App mapping table, troubleshooting) — read it before answering "how do I install / why is X missing" questions.
+Development happens on this Mac (Xcode + iOS Simulator); **tests and the IPA are built locally** with `tools/local_ci.sh`. GitHub Actions remains as a **manual-only** fallback (`workflow_dispatch`) for a clean-room check or when away from the Mac — it no longer runs on every push. `README.md` is the user-facing doc (install steps, feature-by-feature官网/App mapping table, troubleshooting) — read it before answering "how do I install / why is X missing" questions.
 
 ## Commands
 
 ```bash
-# Local, no Mac required (read-only, run before pushing):
-python3 tools/preflight.py       # JSON / plist / path references / Python syntax / icon wiring
-python3 tools/logic_tests.py     # Python mirror of the pure Swift logic, same fixtures
-python3 tools/make_appicon.py    # generates AppIcon-1024.png (gitignored, CI does this too)
+# 主路径（本机 Mac，一条命令）：
+tools/local_ci.sh test       # preflight + 逻辑镜像 + 单元测试 + UI 测试
+tools/local_ci.sh ipa        # 未签名 IPA → ./AIHOT-unsigned.ipa（build 号默认 yyyymmddHHMM）
+BUILD_NUMBER=2026110501 tools/local_ci.sh ipa   # 指定 build 号，AltStore 才能识别为更新
 
-# On a Mac (or via the CI workflow):
-brew install xcodegen && xcodegen generate     # AIHOT.xcodeproj is generated, never committed
+# 只跑纯逻辑/结构自检（很快，不需要模拟器）：
+python3 tools/preflight.py
+python3 tools/logic_tests.py
+python3 tools/make_appicon.py    # 生成 AppIcon-1024.png（gitignored）
+
+# 单测（脚本内部也是这条；destination 由脚本自动挑第一台可用 iPhone）：
 xcodebuild test -project AIHOT.xcodeproj -scheme AIHOT \
-  -destination 'platform=iOS Simulator,name=iPhone 16'
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro'
 
 # Single test:
 xcodebuild test -project AIHOT.xcodeproj -scheme AIHOT \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
   -only-testing:AIHOTTests/EnricherTests/testHeatIsFoundAfterALongDigest
 ```
 
-`.github/workflows/ios.yml` has two **independent** jobs (`test`, `ipa`) that don't `needs` each other — the IPA is intentionally produced even when unit tests fail, so a red run still yields something installable. `CFBundleVersion` is `github.run_number` supplied on the xcodebuild command line, not from `project.yml`.
+`.github/workflows/ios.yml` is **manual-only** (`workflow_dispatch`). Its two jobs (`test`, `ipa`) are **independent** and don't `needs` each other — the IPA is intentionally produced even when tests fail, so a red run still yields something installable. There, `CFBundleVersion` is `github.run_number`; locally the script passes `CURRENT_PROJECT_VERSION` (default timestamp).
 
-### Verifying a change with no Mac
+### Verifying a change
 
-There is no local compiler on the Windows dev box. `preflight.py` + `logic_tests.py` catch structural and pure-logic mistakes only; type errors, SwiftUI problems, regexes and packaging are all found by pushing and reading the run:
+**Local Mac is the authority**: `tools/local_ci.sh test` builds and runs both test targets on a simulator, and `tools/local_ci.sh ipa` produces the unsigned IPA. The Python mirror (`preflight.py` + `logic_tests.py`) is still the fastest pre-check for parsing/classification logic.
+
+If the Mac is unavailable, the manual CI fallback is:
 
 ```bash
+gh workflow run ios.yml --repo Rt1z/aihot-hot-ios      # 手动触发（不会随 push 自动跑）
 gh run list  --repo Rt1z/aihot-hot-ios --limit 3
 gh run watch <id> --repo Rt1z/aihot-hot-ios --exit-status
 gh run view  <id> --repo Rt1z/aihot-hot-ios --log-failed | grep -E "error:|XCTAssert"
-gh api repos/Rt1z/aihot-hot-ios/actions/runs/<id>/artifacts --jq '.artifacts[] | "\(.name) \(.size_in_bytes)"'
 ```
 
-A green `Build IPA` is **not** proof the product is right — the `info:` bug above produced green builds for weeks. Inspect the artifact: download `AIHOT-unsigned-ipa`, read `Payload/AIHOT.app/Info.plist`, and confirm `CFBundleVersion` equals the run number and the display-name / launch-screen / orientation keys are present. `AIHOT-adhoc-ipa` is usually absent by design (ad-hoc signing on `iphoneos` is not a supported combination; that step is `continue-on-error`).
+A green `Build IPA` is **not** proof the product is right — the `info:` bug above produced green builds for weeks. Inspect the IPA (locally or downloaded): read `Payload/AIHOT.app/Info.plist`, and confirm `CFBundleVersion` matches the chosen build number and the display-name / launch-screen / orientation / local-network keys are present.
 
 ## Architecture
 

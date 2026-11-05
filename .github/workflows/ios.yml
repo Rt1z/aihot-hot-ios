@@ -4,8 +4,8 @@ name: iOS Unsigned IPA
 # 两个 job 互相独立（不互相 needs），所以即使单测失败，你依然能拿到 IPA 先装机。
 
 on:
-  push:
-    branches: [main, master]
+  # 日常测试/打包在本地跑：tools/local_ci.sh。
+  # 这里只保留手动触发，避免每次推 main 都去排 macOS runner。
   workflow_dispatch:
 
 permissions:

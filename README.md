@@ -5,8 +5,16 @@
 按**内容**归入 科技 / 健康 / 成长 / 职业 / 周边 五个板块。
 本仓库只做这两块；aihot.news 的「主题」不在范围内。
 
+**有 Mac 时（主路径）**：测试和打包都在本机跑，一条命令搞定，不用等 GitHub 排队：
+
+```bash
+tools/local_ci.sh test    # 单元测试 + UI 测试
+tools/local_ci.sh ipa     # 未签名 IPA → ./AIHOT-unsigned.ipa
+```
+
 **没有 Mac 也能跑通**：GitHub Actions 的 macOS runner 负责编译，产出**未签名 IPA**，
-你用 AltStore + 免费 Apple ID 就能装到自己的 iPhone 上。
+你用 AltStore + 免费 Apple ID 就能装到自己的 iPhone 上。工作流现在是**只手动触发**，
+不会每次 push 都跑；需要云端复验时在 Actions 里点 Run workflow 即可。
 
 ---
 
@@ -26,7 +34,7 @@
    ```
    > 没有 git 环境也没关系：在仓库页面用 **Add file → Upload files**，把整个目录（含隐藏的 `.github` 文件夹）拖进去，GitHub 会保留目录结构。
 
-3. 推上去后打开 **Actions** 标签页，会看到 `iOS Unsigned IPA` 工作流在跑（也可以在 Actions 里点 **Run workflow** 手动触发）。
+3. 打开 **Actions** 标签页 → `iOS Unsigned IPA` → **Run workflow** 手动触发（工作流现在不会随 push 自动跑）。
    跑完（约 3–6 分钟）在 run 页面底部下载 artifact：
    - **`AIHOT-unsigned-ipa`** ← 用这个。未签名包由 AltStore 现场用你的 Apple ID 重新签名，这是常规做法
    - `AIHOT-adhoc-ipa` ← 备用包，**可能不存在**：iphoneos 上的 ad-hoc 签名不是官方支持的组合，CI 里那一步允许失败（失败不影响主包）
@@ -281,9 +289,10 @@ UserDefaults（跨启动保留）。两者都跟收藏/对话记录分开。
 project.yml                 XcodeGen 工程定义（改包名/显示名/版本只改这里）
 .github/workflows/ios.yml   云编译：跑单测与 UI 测试 + 出两个 IPA + 上传 artifact
 tools/make_appicon.py       现场生成 1024 图标（有 Pillow 用 Pillow，没有用标准库）
+tools/local_ci.sh           本地测试 / 打包（主路径）：test 跑单测 + UI 测试，ipa 出未签名包
 tools/preflight.py          构建前自检：JSON / XML / plist / 路径引用 / Python 语法
 tools/logic_tests.py        纯逻辑镜像测试：用 Python 把解析/ID/时间/分类逻辑跑一遍
-                            （和 Swift 单测读同一份夹具，CI 里先于编译执行）
+                            （和 Swift 单测读同一份夹具，本地脚本里先于编译执行）
 docs/subscriptions.example.json  电脑上那份订阅配置的样例
 AIHOT/
   Info.plist                含 ATS 本地网络例外与 NSLocalNetworkUsageDescription
@@ -360,7 +369,7 @@ AIHOTUITests/               UI 测试（设置页换序与开关持久化；用�
 | 局域网地址放行 | `AIHOT/Info.plist` 的 `NSAppTransportSecurity`；优先用 `电脑名.local`，不要依赖裸 IP |
 | 图标 | 换掉 `tools/make_appicon.py` 的画法，或自己放一张 1024×1024 PNG 到 `AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` |
 
-> 有 Mac 的话：`brew install xcodegen && python3 tools/make_appicon.py && xcodegen generate && open AIHOT.xcodeproj`，就能在 Xcode 里跑。
+> 有 Mac 的话：`brew install xcodegen && tools/local_ci.sh test`，就能本地跑完测试；`tools/local_ci.sh ipa` 直接出包。想用 Xcode 打开就 `xcodegen generate && open AIHOT.xcodeproj`。
 
 ## 7. 出问题先看这里
 
@@ -411,7 +420,8 @@ AIHOTUITests/               UI 测试（设置页换序与开关持久化；用�
 
 ## 9. 验收清单
 
-- [ ] Actions 绿，拿到 IPA
+- [ ] `tools/local_ci.sh test` 绿（单元 + UI 测试）
+- [ ] `tools/local_ci.sh ipa` 出包，`CFBundleVersion` 是本次指定的 build 号（可选：手动触发 GitHub Actions 复验）
 - [ ] AltStore 装成功，图标出现在桌面并能打开
 - [ ] 榜单 10 条的顺序与标题和官网 `/hot` 一致
 - [ ] 点一条进详情，AI 摘要与官网 `/story/xxx` 一致，报道时间线正常
