@@ -19,45 +19,22 @@ import os
 import plistlib
 import re
 import sys
-import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 JSON_FILES = [
-    "AIHOT/Assets.xcassets/Contents.json",
-    "AIHOT/Assets.xcassets/AccentColor.colorset/Contents.json",
-    "AIHOT/Assets.xcassets/AppIcon.appiconset/Contents.json",
-    "AIHOTTests/Fixtures/hot-topics.json",
-    "AIHOTTests/Fixtures/story.json",
-    "AIHOTTests/Fixtures/anysearch-search.json",
-    "AIHOTTests/Fixtures/anysearch-error.json",
-    "AIHOTTests/Fixtures/tavily-search.json",
-    "AIHOTTests/Fixtures/tavily-extract.json",
-    "AIHOTTests/Fixtures/story-timeline.json",
-    "AIHOTTests/Fixtures/serpapi-search.json",
-    "AIHOTTests/Fixtures/serpapi-error.json",
-    "AIHOTTests/Fixtures/serper-search.json",
-    "AIHOTTests/Fixtures/serper-error.json",
-    "AIHOTTests/Fixtures/exa-search.json",
-    "AIHOTTests/Fixtures/exa-contents.json",
-    "AIHOTTests/Fixtures/exa-error.json",
-    "AIHOTTests/Fixtures/report-weekly-latest.json",
-    "AIHOTTests/Fixtures/report-weekly-index.json",
-    "AIHOTTests/Fixtures/report-weekly-older.json",
-    "AIHOTTests/Fixtures/report-monthly-latest.json",
-    "AIHOTTests/Fixtures/subscription-config.json",
-    "AIHOTTests/Fixtures/subscription-classify.json",
-    "AIHOTTests/Fixtures/dajiala-post-history.json",
-    "AIHOTTests/Fixtures/dajiala-error-10002.json",
-    "AIHOTTests/Fixtures/dajiala-error-qps.json",
-    "AIHOTTests/Fixtures/dajiala-error-balance.json",
-    "AIHOTTests/Fixtures/dajiala-unknown-shape.json",
-]
-
-# XML 夹具也要在推送前验证：RSS 是「字节 → XMLParser」的整条链路，
-# 文件被编辑器写坏时，Swift 用例的报错会是一句看不出根因的解析失败。
-XML_FILES = [
-    "AIHOTTests/Fixtures/rsshub-bilibili-video.xml",
+    "InOut/Assets.xcassets/Contents.json",
+    "InOut/Assets.xcassets/AccentColor.colorset/Contents.json",
+    "InOut/Assets.xcassets/AppIcon.appiconset/Contents.json",
+    "InOutTests/Fixtures/hot-topics.json",
+    "InOutTests/Fixtures/story.json",
+    "InOutTests/Fixtures/story-timeline.json",
+    "InOutTests/Fixtures/tencent-wsa-search.json",
+    "InOutTests/Fixtures/tencent-wsa-error.json",
+    "InOutTests/Fixtures/report-weekly-latest.json",
+    "InOutTests/Fixtures/report-weekly-index.json",
+    "InOutTests/Fixtures/report-weekly-older.json",
+    "InOutTests/Fixtures/report-monthly-latest.json",
 ]
 
 PYTHON_FILES = [
@@ -74,8 +51,6 @@ REQUIRED_PLIST_KEYS = [
     "CFBundleExecutable",
     "UILaunchScreen",
     "UISupportedInterfaceOrientations",
-    # 订阅要连局域网里的 RSSHub / 配置文件；少了这句 iOS 会静默拒绝且不弹权限框。
-    "NSLocalNetworkUsageDescription",
 ]
 
 PATH_REFERENCE_SOURCES = [
@@ -92,13 +67,13 @@ PROJECT_PATTERNS = [
 
 WORKFLOW_PATTERNS = [
     re.compile(r"python3\s+(tools/[A-Za-z0-9_./-]+)"),
-    re.compile(r"(AIHOT/Info\.plist)"),
+    re.compile(r"(InOut/Info\.plist)"),
 ]
 
 # 构建期才生成的文件（不进仓库，所以不能拿它去 stat）。
 # 这类路径不做「存在性」检查，改由 check_icon_wiring() 比较字符串两侧是否一致。
 GENERATED_PATHS = {
-    "AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+    "InOut/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
 }
 
 problems = []
@@ -123,19 +98,6 @@ def check_json(relative):
     checked.append("json %s" % relative)
 
 
-def check_xml(relative):
-    path = os.path.join(ROOT, relative)
-    if not os.path.isfile(path):
-        fail("缺少文件：%s" % relative)
-        return
-    try:
-        ET.parse(path)
-    except Exception as exc:  # noqa: BLE001
-        fail("XML 解析失败 %s：%s" % (relative, exc))
-        return
-    checked.append("xml %s" % relative)
-
-
 def check_plist(relative):
     path = os.path.join(ROOT, relative)
     if not os.path.isfile(path):
@@ -150,6 +112,15 @@ def check_plist(relative):
     for key in REQUIRED_PLIST_KEYS:
         if key not in data:
             fail("Info.plist 缺少必需键：%s" % key)
+
+    # 分享入口：aihot://add?url=… 靠这个 scheme 注册（没有分享扩展，见规则 21）
+    if relative == "InOut/Info.plist":
+        schemes = []
+        for item in data.get("CFBundleURLTypes") or []:
+            schemes.extend(item.get("CFBundleURLSchemes") or [])
+        if "aihot" not in schemes:
+            fail("Info.plist 缺少分享用的 URL Scheme：aihot")
+
     checked.append("plist %s" % relative)
 
 
@@ -196,7 +167,7 @@ def referenced_paths():
 def check_referenced_paths():
     for relative in sorted(referenced_paths()):
         # xcodegen 生成物、CI 产物，以及构建期才生成的文件
-        if relative.startswith(("build", "Payload", "AIHOT.xcodeproj")):
+        if relative.startswith(("build", "Payload", "InOut.xcodeproj")):
             continue
         if relative in GENERATED_PATHS:
             continue
@@ -210,7 +181,7 @@ def check_referenced_paths():
 def check_icon_wiring():
     """图标是构建期生成的：生成脚本的默认输出路径，必须和 workflow 里那句
     `test -s` 检查的路径一致，否则会以看不懂的 actool 报错收场。"""
-    output = "AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
+    output = "InOut/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
     name = "AppIcon-1024.png"
 
     script_path = os.path.join(ROOT, "tools", "make_appicon.py")
@@ -238,11 +209,9 @@ def check_icon_wiring():
 
 
 def main():
-    check_plist("AIHOT/Info.plist")
+    check_plist("InOut/Info.plist")
     for relative in JSON_FILES:
         check_json(relative)
-    for relative in XML_FILES:
-        check_xml(relative)
     for relative in PYTHON_FILES:
         check_python(relative)
     check_icon_wiring()

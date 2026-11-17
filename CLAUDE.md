@@ -4,56 +4,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An iOS (SwiftUI, min iOS 16) native app that re-renders the **热点榜** section of [aihot.news](https://aihot.news) — 10 rows, no browser. It also has a **订阅** tab that aggregates 微信公众号 (paid Dajiala API) and B 站 (a self-hosted RSSHub on the user's Mac), classifying each item into 科技/健康/成长/职业/周边 with local keyword rules; see rule 20. The 「主题」 section is explicitly out of scope. Zero third-party dependencies, zero entitlements (deliberate: the CI output is an *unsigned* IPA side-loaded via AltStore with a free Apple ID, so push/entitlements would break the whole distribution model).
+An iOS (SwiftUI, min iOS 16) native app that re-renders the **热点榜** section of [aihot.news](https://aihot.news) — 10 rows, no browser. The 「主题」 section is explicitly out of scope. Zero third-party dependencies, zero entitlements (deliberate: the CI output is an *unsigned* IPA side-loaded via AltStore with a free Apple ID, so push/entitlements would break the whole distribution model).
 
-Development happens on this Mac (Xcode + iOS Simulator); **tests and the IPA are built locally** with `tools/local_ci.sh`. GitHub Actions remains as a **manual-only** fallback (`workflow_dispatch`) for a clean-room check or when away from the Mac — it no longer runs on every push. `README.md` is the user-facing doc (install steps, feature-by-feature官网/App mapping table, troubleshooting) — read it before answering "how do I install / why is X missing" questions.
+It also has a **练习本** (rule 20): read an article, write your own summary, compare it against the source's 导读, optionally get a deliberately non-rewriting AI critique. Practice entries are user data (Application Support), never cache.
+
+And **外部链接收藏** (rule 21): a WeChat article (or any public web page) can be brought in by auto-detected clipboard, the 收藏 「+」 sheet, a Shortcuts intent, or `aihot://add?url=…`, stored as link + title in the same `FavoritesStore` array as hot topics. Tapping one opens an **inline WKWebView reader** (full text, original styling); the same page offers AI chat and 练一练 based on the fetched body. There is deliberately **no share extension** — see rule 21 for why the free-account/AltStore distribution rules it out.
+
+Development happens on Windows; the build happens on GitHub Actions macOS runners. `README.md` is the user-facing doc (install steps, feature-by-feature官网/App mapping table, troubleshooting) — read it before answering "how do I install / why is X missing" questions.
 
 ## Commands
 
 ```bash
-# 主路径（本机 Mac，一条命令）：
-tools/local_ci.sh test       # preflight + 逻辑镜像 + 单元测试 + UI 测试
-tools/local_ci.sh ipa        # 未签名 IPA → ./AIHOT-unsigned.ipa（build 号默认 yyyymmddHHMM）
-BUILD_NUMBER=2026110501 tools/local_ci.sh ipa   # 指定 build 号，AltStore 才能识别为更新
+# Local, no Mac required (read-only, run before pushing):
+python3 tools/preflight.py       # JSON / plist / path references / Python syntax / icon wiring
+python3 tools/logic_tests.py     # Python mirror of the pure Swift logic, same fixtures
+python3 tools/make_appicon.py    # generates AppIcon-1024.png (gitignored, CI does this too)
 
-# 只跑纯逻辑/结构自检（很快，不需要模拟器）：
-python3 tools/preflight.py
-python3 tools/logic_tests.py
-python3 tools/make_appicon.py    # 生成 AppIcon-1024.png（gitignored）
-
-# 单测（脚本内部也是这条；destination 由脚本自动挑第一台可用 iPhone）：
-xcodebuild test -project AIHOT.xcodeproj -scheme AIHOT \
-  -destination 'platform=iOS Simulator,name=iPhone 18 Pro'
+# On a Mac (or via the CI workflow):
+brew install xcodegen && xcodegen generate     # InOut.xcodeproj is generated, never committed
+xcodebuild test -project InOut.xcodeproj -scheme InOut \
+  -destination 'platform=iOS Simulator,name=iPhone 16'
 
 # Single test:
-xcodebuild test -project AIHOT.xcodeproj -scheme AIHOT \
-  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
-  -only-testing:AIHOTTests/EnricherTests/testHeatIsFoundAfterALongDigest
+xcodebuild test -project InOut.xcodeproj -scheme InOut \
+  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -only-testing:InOutTests/EnricherTests/testHeatIsFoundAfterALongDigest
 ```
 
-`.github/workflows/ios.yml` is **manual-only** (`workflow_dispatch`). Its two jobs (`test`, `ipa`) are **independent** and don't `needs` each other — the IPA is intentionally produced even when tests fail, so a red run still yields something installable. There, `CFBundleVersion` is `github.run_number`; locally the script passes `CURRENT_PROJECT_VERSION` (default timestamp).
+`.github/workflows/ios.yml` has two **independent** jobs (`test`, `ipa`) that don't `needs` each other — the IPA is intentionally produced even when unit tests fail, so a red run still yields something installable. `CFBundleVersion` is `github.run_number` supplied on the xcodebuild command line, not from `project.yml`.
 
-### Verifying a change
+### Verifying a change with no Mac
 
-**Local Mac is the authority**: `tools/local_ci.sh test` builds and runs both test targets on a simulator, and `tools/local_ci.sh ipa` produces the unsigned IPA. The Python mirror (`preflight.py` + `logic_tests.py`) is still the fastest pre-check for parsing/classification logic.
-
-If the Mac is unavailable, the manual CI fallback is:
+There is no local compiler on the Windows dev box. `preflight.py` + `logic_tests.py` catch structural and pure-logic mistakes only; type errors, SwiftUI problems, regexes and packaging are all found by pushing and reading the run:
 
 ```bash
-gh workflow run ios.yml --repo Rt1z/aihot-hot-ios      # 手动触发（不会随 push 自动跑）
 gh run list  --repo Rt1z/aihot-hot-ios --limit 3
 gh run watch <id> --repo Rt1z/aihot-hot-ios --exit-status
 gh run view  <id> --repo Rt1z/aihot-hot-ios --log-failed | grep -E "error:|XCTAssert"
+gh api repos/Rt1z/aihot-hot-ios/actions/runs/<id>/artifacts --jq '.artifacts[] | "\(.name) \(.size_in_bytes)"'
 ```
 
-A green `Build IPA` is **not** proof the product is right — the `info:` bug above produced green builds for weeks. Inspect the IPA (locally or downloaded): read `Payload/AIHOT.app/Info.plist`, and confirm `CFBundleVersion` matches the chosen build number and the display-name / launch-screen / orientation / local-network keys are present.
+A green `Build IPA` is **not** proof the product is right — the `info:` bug above produced green builds for weeks. Inspect the artifact: download `InOut-unsigned-ipa`, read `Payload/InOut.app/Info.plist`, and confirm `CFBundleVersion` equals the run number and the display-name / launch-screen / orientation keys are present. `InOut-adhoc-ipa` is usually absent by design (ad-hoc signing on `iphoneos` is not a supported combination; that step is `continue-on-error`).
 
 ## Architecture
 
-**`RootView` is the top level**: it owns `@StateObject HotTopicsStore`, `@StateObject FavoritesStore`, `@StateObject LeaderboardStore`, `@StateObject ReportStore` **and** `@StateObject SubscriptionStore`, wraps five tabs in a `TabView` (热点 / 周报 / 模型榜 / 订阅 / 个人 — 个人 stays last, iOS convention), and passes the stores down **by constructor injection**. There is deliberately **no `EnvironmentObject` anywhere in this repo** — don't introduce one; sharing is `@StateObject` at the owner + `@ObservedObject` (or plain `let` for pass-through) below, or a `.shared` singleton for stateless services. The `TabView` has an explicit `selection` binding (`Tab.hot/...`) because `SubscriptionTabView(isActive:)` must not auto-refresh (paid WeChat calls) before the user actually selects that tab. `AIHOTUITests` still indexes the last tab by position (`boundBy: 4` = 个人) — 设置 is now pushed from 个人, so `openSearchToolsSection()` taps the row `profile-settings` first; reordering tabs before 个人 means syncing that test.
+**`RootView` is the top level**: it owns `@StateObject HotTopicsStore`, `@StateObject FavoritesStore`, `@StateObject LeaderboardStore`, `@StateObject ReportStore` **and** `@StateObject PracticeStore`, wraps five tabs in a `TabView` (热点 / 周报 / 模型榜 / 收藏 / 设置 — 设置 stays last, iOS convention), and passes the stores down **by constructor injection**. There is deliberately **no `EnvironmentObject` anywhere in this repo** — don't introduce one; sharing is `@StateObject` at the owner + `@ObservedObject` (or plain `let` for pass-through) below, or a `.shared` singleton for stateless services. `InOutUITests` indexes the 设置 tab by position (`boundBy: 4`) — reordering the tabs **before** 设置 (done once already: 周报 moved to slot 2) means syncing that test's comments, but the index only changes if 设置 stops being last.
 
 ```
-RootView (TabView: 热点 | 周报 | 模型榜 | 订阅 | 个人)
+RootView (TabView: 热点 | 周报 | 模型榜 | 收藏 | 设置)
    ├── HotListView          ──> HotTopicsStore ──> AIHOTAPI ──> aihot.news (anonymous read-only)
    │                                │                  └── ETagStore (UserDefaults, survives relaunch)
    │                                ├── SnapshotCache  (Caches/hot-topics.json — cold start + offline)
@@ -76,52 +74,52 @@ RootView (TabView: 热点 | 周报 | 模型榜 | 订阅 | 个人)
    │        │                        ├── LeaderboardCache (Caches/leaderboard-boards.json — boards only,
    │        │                        │    details stay in memory; NO ETag on these pages → 300s/600s throttle)
    │        └── LeaderboardDetailView(slug:)          └── LeaderboardParser (pure, 镜像 17)
-   ├── SubscriptionTabView  ──> SubscriptionStore ──> Dajiala (WeChat, paid) + RSSHub (Bilibili, LAN)
-   │        │                        ├── SubscriptionConfigLoader (电脑上的 subscriptions.json，10 分钟节流)
-   │        │                        ├── DajialaAPI + DajialaParser (page 1 only, 串行 + 0.5s 间隔)
-   │        │                        ├── RSSHubAPI + RSSFeedParser (RSS 2.0，路由只许 /bilibili/)
-   │        │                        ├── SubscriptionClassifier (五板块关键词，pure, 镜像 21)
-   │        │                        ├── SubscriptionLogic (合并/排序/截断/门槛, pure, 镜像 22)
-   │        │                        ├── SubscriptionSnapshotCache (Caches/subscriptions.json)
-   │        │                        └── AppSettings 里的公众号 lastAttempt（计费闸门，清缓存不碰）
-   │        └── SubscriptionItemDetailView（摘要 + 打开原文）
-   └── ProfileTabView       ──> 个人：收藏入口 + 设置入口 + 订阅概况
-            ├── FavoritesListView (pushed; 自己**不再**带 NavigationStack；HotTopic destination 注册在个人页栈根)
-            └── AboutView (= 设置, pushed; 内含 SubscriptionSettingsSection)
-        StoryDetailView (pushed from 热点/收藏) owns its own StoryDetailModel; the bookmark
-        toggle there is the ONLY place a favorite is created.
+   ├── SaveLinkIntent (App Intents / 快捷指令) ──> FavoritesStore.add(link:) + pendingOpenLinkURL
+   ├── FavoritesListView    ──> FavoritesStore (UserDefaults/aihot.favorites — USER DATA, one array,
+   │        │                    two kinds: .topic = HotTopic snapshot / .link = SavedLink)
+   │        ├── 顶部固定入口「练习本」──> PracticeListView ──> PracticeEntryView (read-only)
+   │        ├── 右上「+」──> AddLinkSheet ──> SharedLinkURL + LinkTitleService（PasteButton 导入）
+   │        ├── SavedLinkDetailView ──> ArticleWebView (WKWebView 全文/原样式/抓标题与正文)
+   │        │        ├── AIChatView(subject: .savedLink) ──> AIChatNewsContext.make(link:articleText:)
+   │        │        └── PracticeSheet(kind: .savedLink, articleText: 全文)
+   │        └── StoryDetailView (pushed) ──> StoryDetailModel; bookmark toggle 是唯一热点收藏入口
+   ├── 热点/周报详情页「练一练」──> PracticeSheet (compose → contrast) ──> PracticeStore
+   │        │                        ├── Application Support/practice-entries.json + practice-drafts.json
+   │        │                        │      （USER DATA：清缓存不碰、不设上限、顺序=数组顺序）
+   │        │                        ├── PracticeText / PracticeStats (pure, 镜像 23)
+   │        │                        ├── PracticeReviewPrompt (pure, 镜像 23；材料按全文/导读标注)
+   │        │                        └── PracticeReviewModel ──> AIChatAPI(includeTools: false)（一次性短请求）
+   └── AboutView (= 设置)    ──> hot + favorites + reports stores
 ```
 
 Each tab's root view owns its own `NavigationStack` (`TabView` outside, one `NavigationStack` per tab — never the reverse).
 
 **The 报道节奏 chart** is a pure-function + thin-view split, on purpose: `ReportTimeline.make(story:)` (Services) turns `Story.reports` into buckets/labels/axis ticks, `ReportTimelineChart` (a `Swift Charts` view, a system framework — no `project.yml` change needed) only draws the `Summary`. Everything except the drawing is covered by XCTest + the Python mirror; see rule 15.
 
-**The AI chat layer** (feature: tap the bubble icon in `StoryDetailView`'s nav bar). The model can ask to call two tools — `web_search` and `read_url` — which the app executes against **the search-tool chain**: five providers (AnySearch, Tavily, SerpAPI, Exa, Serper) in user order with per-provider toggles and automatic fall-through (`SearchToolChain`), and the result is fed back; it decides on its own whether to search. Almost all of the risky logic is pure and pinned by tests; the transport is the part nobody can exercise locally. Sessions persist per story (below).
+**The AI chat layer** (feature: tap the bubble icon in `StoryDetailView`'s nav bar, or the toolbar in an imported article). The model can ask to call two tools — `web_search` and `read_url`. `AIChatToolRouter` executes them: **search** goes to Tencent Cloud 元宝搜索 (`SearchPro`, TC3-signed), **read** goes to an in-app `WebPageReader` (`URLSession` + `HTMLTextExtractor`, not through Tencent). The result is fed back; it decides on its own whether to search. Almost all of the risky logic is pure and pinned by tests; the transport is the part nobody can exercise locally. Sessions persist per story/link (below).
 
 ```
 AIChatView (sheet, sessionKey = HotTopic.id) ──> AIChatModel (@MainActor: byte loop + SSELineSplitter,
                           │            runs the tool loop, clamps + feeds results back,
                           │            restores the session at init, persists in finishStreaming())
                           ├── ChatHistoryStore (Application Support/chat-sessions.json — user data, 50-session cap)
-                          ├── AppSettings.currentAIChatConfig() ──> AIChatSecretStore (Keychain, 8 slots:
-                          │        2 chat protocols + 5 search providers + Dajiala, keyed accessors)
+                          ├── AppSettings.currentAIChatConfig() ──> AIChatSecretStore (Keychain, 4 slots:
+                          │        2 chat protocols + Tencent SecretId/SecretKey)
                           ├── AIChatAPI ──> AIChatRequestBuilder (bodies/headers + tool round-trips)
                           │                    └── AIChatConfig (protocol, base URL, model)
-                          └── makeSearchChain() ──> SearchToolChain (user order = 优先级, fall-through on
-                                     │ failure, all-fail returns the FIRST provider's error, one snapshot per send)
-                                     ├── AnySearchAPI (JSON-RPC over /mcp, anonymous OK)
-                                     ├── TavilyAPI (plain REST, Bearer required — no anonymous mode)
-                                     ├── SerpAPI (GET, key in query — never in copy, search only)
-                                     ├── ExaAPI (search + contents, statuses[] checked before body)
-                                     └── SerperAPI (POST X-API-KEY, search only)
+                          └── makeToolRouter() ──> AIChatToolRouter (one credential snapshot per send)
+                                     ├── TencentWSARunner ──> TencentWSAAPI (SearchPro, TC3-HMAC-SHA256)
+                                     │        └── TencentWSASignature (pure, 镜像 25)
+                                     └── WebPageReader (read_url: URLSession + HTMLTextExtractor;
+                                               不经过腾讯云；公众号风控页明确报错)
 
 pure & tested:  SSEParser (bytes→lines→frames + both decoders) · AIChatTool (call accumulator)
                 AIChatNewsContext (prompt material) · AIChatConfig/AIChatRequestBuilder
                 AIChatModel.history (跨轮历史：空消息剔除 + 纯追加)
                 AIChatModel.truncationNotice (一轮什么都没认出来时说哪句话)
                 ChatHistoryStore.trim (封顶 50：数组顺序即淘汰权威，绝不排序)
-                SearchToolChain.eligibleProviders + AppSettings.normalizeSearchToolOrder/Disabled (镜像 15)
-                SearchToolChain.makeRunner (单家 runner 工厂：发送链与设置页「测一下」共用)
+                TencentWSASignature (TC3-HMAC-SHA256 — 镜像 25) · TencentWSAResponseParser
+                WebPageReader (HTML → 纯文本，clamp 到 8000；复用 SharedLinkURL 的公开主机校验)
                 ChatAnswerCopy (复制回答的文本拼装：正文 + 标题 + 出处链接)
                 MarkdownBlocks.parse (回答的 Markdown 分块 — 镜像 16；渲染在 MarkdownBlocksView，
                   流式中也走分块：出字是 70ms 一批不是逐字，分块器也没有半截语法的失败态)
@@ -144,7 +142,7 @@ Symptom if you get this wrong: "detail page loses its report timeline on second 
 
 **3. Enrichment is all-or-nothing, and it never invents numbers.** The public API returns no 热度指数 / 涨跌 / 爆·新 badges / avatars. `HotPageEnricher` scrapes them out of `/hot` text, but only anchored on literal 文案 like 「热度指数」, and any failure returns `nil` so the UI silently falls back to API fields (source count / participant count). Existing titles are stripped from the text first so 「新」/「爆」 inside a title can't be misread as a badge. When tweaking regexes, the guiding principle in the source is *宁可少抽，不可抽错*. CSS class names are intentionally not used — only visible copy — so a Tailwind reshuffle doesn't break it.
 
-**4. The Python logic tests are a mirror, not an authority.** `tools/logic_tests.py` re-implements the same parsing / `StoryID` / `RelativeTime` logic and runs against the *same* `AIHOTTests/Fixtures/*` files as the XCTest suite. It exists because the trickiest code (regex + window logic) is invisible to the compiler and this runs in milliseconds without a simulator. **If you change the Swift logic, mirror the change there or the mirror silently diverges.** Assertions must be derived from the fixture contents, not from reasoning about what the value "should" be.
+**4. The Python logic tests are a mirror, not an authority.** `tools/logic_tests.py` re-implements the same parsing / `StoryID` / `RelativeTime` logic and runs against the *same* `InOutTests/Fixtures/*` files as the XCTest suite. It exists because the trickiest code (regex + window logic) is invisible to the compiler and this runs in milliseconds without a simulator. **If you change the Swift logic, mirror the change there or the mirror silently diverges.** Assertions must be derived from the fixture contents, not from reasoning about what the value "should" be.
 
    It also **cannot validate the Swift string literals themselves**, and that blind spot is not theoretical: `HTMLTextExtractor.stripElement` had its closing tag written `"</\\(tag)>"` (doubled backslash) instead of `"</\(tag)>"`. At runtime that pattern became `</` + `\s` + `cript>`, matched nothing, and silently left every `<script>`/`<style>` body in the extracted text — while the Python mirror, which uses the correct `</%s>`, stayed 74/74 green. When Swift and the mirror disagree, **Swift is the authority**; the mirror is either wrong or blind. Regexes here are dense (`"<\(tag)\\b..."` legitimately mixes a one-backslash interpolation with a two-backslash `\b`), so read the bytes (`sed -n 'Np' file | od -c`) rather than trusting the eye.
 
@@ -166,28 +164,20 @@ Symptom if you get this wrong: "detail page loses its report timeline on second 
 
 **12. Tool blocks live inside ONE turn; history stays text-only.** A turn may contain several tool round-trips and those are echoed in full (Anthropic: `tool_use` + a matching `tool_result`; OpenAI: `tool_calls` + `role:"tool"`). But once the turn ends, only the assistant's **text** is kept and the next turn sends text-only history. This is load-bearing, not laziness: the preserved-thinking history check only validates `thinking` blocks you actually replay, so replaying none keeps the feature outside that check's blast radius — and the tool blocks we do echo are ones **we** assembled from the stream (`AIChatToolCallAccumulator`), so they cannot carry a mismatched signature. `testAnthropicHistoryIsTextOnlyAndCarriesContextInFirstUserTurn` pins the history shape; the two round-trip shapes have their own tests. A turn is capped at 5 tool rounds (`AIChatModel.maximumToolRounds`) — every round costs money.
 
-**13. AnySearch: JSON-RPC, optional auth, and two failure shapes that look nothing alike.** `POST https://api.anysearch.com/mcp`, method `tools/call`, tools `search` / `extract`. The response is **plain JSON, not SSE** — `result.content[0].text`. The `Authorization: Bearer` header is **optional** (anonymous works, lower rate limits), which is why the settings UI says "clear the field to go back to anonymous".
+**13. 联网搜索只有一个后端：腾讯云元宝搜索（SearchPro）；TC3 签名是最容易写错的部分.** 五家搜索工具与回退链已删除（设置里的顺序/开关也不再存在）。现在的分工是：`web_search` → 腾讯云元宝搜索；`read_url` → App 内 `WebPageReader`。几条必须守住的线：
+- **接口契约**：`POST https://wsa.tencentcloudapi.com/`，`X-TC-Action: SearchPro`，`X-TC-Version: 2025-05-08`。没有简单 API Key —— 用腾讯云的 **SecretId + SecretKey** 做 TC3-HMAC-SHA256 签名。
+- **签名的两个致命细节**：① 规范请求串里 `CanonicalHeaders` 本身以 `\n` 结尾，拼接时**还要再多一个 `\n`**（官方示例的 `7019a55…` 规范串哈希就是按这个形状算的；少一个换行会静默签错）；② `Date` 必须取 **UTC+0** 的日期，`X-TC-Timestamp` 与服务器时间相差超过 5 分钟会报签名过期。参与签名的头部是 `content-type;host;x-tc-action`（值统一小写）。`TencentWSASignature` 是纯函数，Swift 用例钉住官方示例的 `35e9…`（请求体哈希）与 `7019…`（规范串哈希），镜像 25 用固定测试密钥对照同一套 HMAC 链。
+- **响应是「数组里装 JSON 字符串」**：`Response.Pages` 是 `[String]`，每个元素还要再解一次；**单条坏数据只跳过那一条**，不让整次搜索失败。错误信封是 `Response.Error{Code,Message}`，HTTP 200 也可能带错误 —— 先查 Error 再解析 Pages。鉴权类错误（`AuthFailure.*`）必须给出「去设置核对 SecretId/SecretKey、确认账号已开通元宝搜索」的可执行文案，并附 `RequestId`；限频/配额、服务不可用分开说。
+- **元宝搜索没有读网页接口**：`read_url` 由 `WebPageReader` 在 App 内用 URLSession 抓取（复用 `SharedLinkURL.normalized` 的公开 http/https 边界，2 MB 上限），再用 `HTMLTextExtractor` 压成纯文本，`AIChatToolResult.clamp` 截到 8000。公众号会落到 `wappoc_appmsgcaptcha`，这种情况明确报错（让用户去 App 内阅读器完成验证），**不要拿验证页文字冒充正文**。
+- **凭据与设置**：`AIChatSecretStore` 共四份（两条对话协议 + 腾讯 SecretId/SecretKey），默认 Keychain、写失败时降级到应用内并**在设置页明说**。「测试搜索」用当前草稿发一次真实 `SearchPro`（消耗一次额度），错误原文直接显示。
+- **夹具纪律**：`tencent-wsa-search.json` 是按**官方 API 文档的示例响应**改写的（我们没有可用的腾讯云密钥，无法真实调用），测试注释里必须写明「不是个人抓取」；`tencent-wsa-error.json` 用的是文档里的鉴权失败形状。不要把「手写 payload 上钉绿」当成真实链路已验证。
+- **不要再把五家搜索工具/回退链加回来**：工具声明与执行者无关，换一家只该换 `AIChatToolRouter` 里的执行者，不应改请求体。
 
-Failure comes back in **two** shapes and only checking one of them shipped a silent bug:
-- **Invalid key / the tool itself failing: HTTP is still `200`.** There is *no* top-level `error`; the failure is `result.isError == true` and the reason is in `result.content[0].text` (a bad key returns exactly `{"result":{"content":[{"text":"invalid_api_key\nInvalid API key."}],"isError":true}}`). `resultText` **must** check `isError` — without it the string `invalid_api_key / Invalid API key.` was handed to the model as a *successful* search result, the carefully-worded "Key 无效或已停用" message in the 401/403 branch never appeared, and the user just saw the model flounder. The 401/403 branch is now only a fallback; nothing observed actually goes through it.
-- Protocol-level errors (bad params): top-level `error.message`.
+**14. 两件事分开：原文链接走系统阅读器；导入文章用内嵌 WKWebView.** 
+- **热点/周报的原文链接**仍然只走 `SFSafariViewController`：`SafariView.entersReader`（默认 `false`）映射到 `Configuration.entersReaderIfAvailable`。它是*尽力而为*——页面自己支持阅读器才进得去，不支持就照常显示，所以打开它不会比关掉更差；真正的风险是**支持阅读器但抽得不好**的页面，而 SFSafariViewController 里能不能退出阅读器不由我们决定。所以「打开原文」旁边那个「网页版」按钮不是装饰，是唯一的回退路径，删掉它就把用户困住了。**不要把这些链接改成 WKWebView**：它完全做不到阅读器模式，换成它只会丢掉功能、还要自己接分享/返回。哪个入口进阅读器由调用方决定：`WebLinkSheet(url:entersReader:)` 里的 `entersReader`，同一个链接的两种打开方式靠 `id` 上的 `#reader` 后缀区分（否则 SwiftUI 认为「还是那一个」，点「网页版」不会重新弹）。aihot.news 是网页应用、没有正文，那个入口永远走网页。
+- **收藏里的导入文章**是另一回事：微信对普通 URLSession 请求返回风控验证页，只有真正的浏览器能拿到全文，而产品要求「进入文章即显示全文、尽量保持原样式」。所以 `SavedLinkDetailView` 内嵌一个 WKWebView 直接打开原文（`ArticleWebView`），它同时负责读回真实标题与正文纯文本（供 AI 对话/练习）。系统阅读器仍留在菜单里（「在阅读器打开 / 在 Safari 打开」）作为逃生口。**风控验证页不能盖错误遮罩**：用户需要在页面上完成验证，遮住就没法操作；此时只给一行提示，并把正文置空（不要让练习/对话拿验证页文字当文章）。阅读器的底色必须跟随 App 主题：WKWebView 设为非不透明、`backgroundColor`/`scrollView.backgroundColor`/`underPageBackgroundColor` 都用 `Theme.background`，公众号页面的容器背景置为透明，并把 WebView 铺到屏幕底部。**不要注入 `body{background:#fff}`** —— 深色模式下那会在正文上下露出一块白底，和底部安全区形成色差。
 
-The old test used a **hand-written** `{"error":{"message":"Invalid API key"}}` payload — a shape the server never sends — which is exactly why the bug stayed green. Pin the parser against the **real captured bytes** (`AIHOTTests/Fixtures/anysearch-search.json` for success, `anysearch-error.json` for the bad-key shape); when a fixture is a guess rather than a capture, say so.
-
-`search` and `extract` do **not** return the same kind of text: `search` gives model-ready Markdown (title + URL + summary) that goes back as a `tool_result` unparsed, but `extract` gives a **JSON document string** (`{"url":…,"title":…,"content":"…"}`, newlines escaped) which currently also goes back unparsed (the model copes; unwrapping it would be the optimisation). Results are clamped before going to the model (`AIChatToolResult.maximumCharacters`, 8000) because `extract` can return 50k characters from one page.
-
-**Tavily** (second provider by default). The setting only changes *who executes* the tools (`AIChatModel.makeSearchChain()` → `SearchToolChain`); tool declarations in `AIChatRequestBuilder` are built from `AIChatToolName` and stay byte-identical either way. `POST https://api.tavily.com/search` and `/extract`, plain JSON body (not JSON-RPC), `Authorization: Bearer` **required — there is no anonymous mode**, so an empty key is rejected inside `TavilyToolRunner` before any request goes out (「还没填 Tavily 的 Key…」; the chain normally skips blank required keys first, so this is defence). Its failure shape is the **mirror image** of AnySearch's: the primary signal is the HTTP status code (401/403 → 「Tavily 的 Key 无效或已停用…到「设置 → AI 对话 → 搜索工具」换一个 Key，或停用 Tavily 改用其它家」, 429 → 频繁), *and* `extract` can still come back HTTP 200 with a non-empty `failed_results` — that is Tavily's `isError` trap: it must throw even when successful results sit next to the failure. Request shapes differ from AnySearch too: extract takes a `urls` **array** plus `format: "markdown"`, and returns `raw_content` (Markdown handed over directly, unlike AnySearch's JSON document string); search returns `results[]{title,url,content}` plus an optional `answer`, prefixed as a `> ` quote. Both parsers are pinned against **captured** bytes (`tavily-search.json`, `tavily-extract.json`; the extract fixture is 11418 chars with 3 trailing whitespace → 11415 after trim — what both the Swift test and 镜像 12 assert); the error-body cases are synthetic and marked as guesses in the tests.
-
-**Three more backends, one fallback chain.** `AppSettings.SearchToolProvider` declares five providers in default order (anySearch, tavily, serpapi, exa, serper — old users still start on AnySearch). The settings page reorders/toggles them into `aihot.aichat.searchToolOrder` / `aihot.aichat.searchToolDisabled`; the legacy single-select `aihot.aichat.searchTool` key is **read-only migration** — honoured only while the order key is nil, never written back. `SearchToolChain.eligibleProviders` (pure, 镜像 15) filters in the user's order: disabled → `read_url` capability → blank required key (a blank AnySearch key is **kept** — anonymous is legal). `execute` walks the survivors, returns on the first success, and **if everything fails returns the FIRST provider's error** (`firstError` recorded once, never overwritten) — the settings footer promises exactly this, so copy and code must stay in lockstep. Zero survivors → no network at all, just an actionable message naming 「设置 → AI 对话 → 搜索工具」. Each `send` takes one snapshot of order/disabled/keys, so mid-conversation setting edits never affect an in-flight turn.
-- **SerpAPI — search only.** `GET serpapi.com/search?engine=google&q=…&api_key=…`: the key lives in the **query string**, so no error copy may ever contain the request URL (tests assert the message has neither `api_key=` nor `serpapi.com/search?`). Success body is `organic_results[]`, but a top-level `"error"` string can appear **on HTTP 200** — checked before parsing, the same trap class as Tavily's `failed_results`. Real error bodies are a single `{"error": "…"}` field which `AIChatAPI.problemMessage` cannot parse, hence `SerpAPI.topError`. Fixtures `serpapi-search.json` / `serpapi-error.json`: captured.
-- **Serper — search only.** `POST google.serper.dev/search`, header `X-API-KEY`, body exactly `{"q": query}`. The error shape was undocumented (docs.serper.dev unreachable) and came from a wrong-key probe: HTTP 403 `{"message":"Unauthorized.","statusCode":403}` — `problemMessage`'s `message` shape covers it, and `searchText` also defensively reads a top-level `message` when `organic` is empty. Fixtures `serper-search.json` / `serper-error.json`: captured.
-- **Exa — search + read.** `POST api.exa.ai/search` (numResults 5, `contents.text.maxCharacters` 500) and `/contents` (`urls` array, 8000). The contents response carries `statuses[]` — the `failed_results` analogue: **HTTP 200 with a failed status must throw**, checked before the body. `maxCharacters` is *not* strictly honoured (captured response: 10689 chars for a request of 8000) — the 8000-char clamp (`AIChatToolResult.maximumCharacters`) is the backstop; never trust the request-side cap. Error envelope `{requestId, error(string), tag}` → own `topError`, with 402 (额度用尽) worth its own branch. Fixtures `exa-search.json` / `exa-contents.json` / `exa-error.json`: captured.
-
-Branches that cannot be forced cheaply (SerpAPI's 200-with-error, Exa's failed `statuses`) are pinned with **synthetic** bodies, marked as such in the tests — same rule as above: say when a fixture is a guess. The 「仅搜索」 capability of SerpAPI/Serper is what makes `read_url` skip them without any per-call branching in the model.
-
-**14. 原文走系统阅读器，且**必须**配一个逃生口 —— 不要为它引入 WKWebView.** `SFSafariViewController` 是唯一实现：`SafariView.entersReader`（默认 `false`）映射到 `Configuration.entersReaderIfAvailable`。它是*尽力而为*——页面自己支持阅读器才进得去，不支持就照常显示，所以打开它不会比关掉更差；真正的风险是**支持阅读器但抽得不好**的页面，而 SFSafariViewController 里能不能退出阅读器不由我们决定。所以详情页「打开原文」旁边那个「网页版」按钮不是装饰，是唯一的回退路径，删掉它就把用户困住了。WKWebView **完全做不到**阅读器模式，换成它只会丢掉功能、还要自己接分享/返回，别再提这条路。哪个入口进阅读器由调用方决定：`WebLinkSheet(url:entersReader:)` 里的 `entersReader`，同一个链接的两种打开方式靠 `id` 上的 `#reader` 后缀区分（否则 SwiftUI 认为「还是那一个」，点「网页版」不会重新弹）。aihot.news 是网页应用、没有正文，那个入口永远走网页。
-
-**15. 报道节奏图的一切数字都出自纯函数 `ReportTimeline`，它是被镜像的那类逻辑.** `ReportTimeline.make(story:)` 不读 `Date()`（窗口由数据自己的最早/最新一条决定），所以同一条 story 永远得到同样的图，能被夹具钉住。`ReportTimelineChart` 只负责把 `Summary` 画出来，**不允许**在里面分桶、算刻度或改标签。三条不变量：桶按**北京时间**对齐（与 `RelativeTime` 同一口径，否则「哪一天」会按 UTC 切）；`count == 0` 的空桶要留着（断档本身就是结论）；**桶数 ≤ 24**——x 轴是按标签分类的轴，重名会被合并成一根柱子，而 ≤ 24 恰好保证标签不可能重复。轴刻度只能整数除法 `i * (n - 1) / 4`，**绝不能引入 `round()`**：Python 是银行家舍入、Swift 是四舍五入，`n = 25` 时两边会挑出不同的刻度。改这里就要同步改 `tools/logic_tests.py` 的「镜像 9」，两边读同一份夹具 `AIHOTTests/Fixtures/story-timeline.json`（`story.json` 只有 1 条报道、且被 `len(reports) == 1` 钉着，不能拿来用）。
+**15. 报道节奏图的一切数字都出自纯函数 `ReportTimeline`，它是被镜像的那类逻辑.** `ReportTimeline.make(story:)` 不读 `Date()`（窗口由数据自己的最早/最新一条决定），所以同一条 story 永远得到同样的图，能被夹具钉住。`ReportTimelineChart` 只负责把 `Summary` 画出来，**不允许**在里面分桶、算刻度或改标签。三条不变量：桶按**北京时间**对齐（与 `RelativeTime` 同一口径，否则「哪一天」会按 UTC 切）；`count == 0` 的空桶要留着（断档本身就是结论）；**桶数 ≤ 24**——x 轴是按标签分类的轴，重名会被合并成一根柱子，而 ≤ 24 恰好保证标签不可能重复。轴刻度只能整数除法 `i * (n - 1) / 4`，**绝不能引入 `round()`**：Python 是银行家舍入、Swift 是四舍五入，`n = 25` 时两边会挑出不同的刻度。改这里就要同步改 `tools/logic_tests.py` 的「镜像 9」，两边读同一份夹具 `InOutTests/Fixtures/story-timeline.json`（`story.json` 只有 1 条报道、且被 `len(reports) == 1` 钉着，不能拿来用）。
 
 **16. 「连接提前中断，回复可能不完整」只留给「真有正文、只是收尾标记没来」，别把它当成万能兜底.** 这句话原来被四种完全不同的故障共用：协议与地址不配套（另一条协议的流被本协议的解码器读到，一个事件都认不出来）、服务端回了非 SSE 的东西却谎报 `Content-Type: text/event-stream`、一帧都没收到、以及只收到思考块就断了。前三种与「连接中断」毫无关系，用户照着一句话什么都查不出来 —— 侧载的 App 挂不上调试器，**界面上那行字就是唯一的诊断信号**，所以 `AIChatModel.consume` 会把「切了几帧、认出几个事件、前 5 段认不出来的原文」记进 `StreamedRound`，由纯函数 `AIChatModel.truncationNotice` 分情况说话：拿**另一条协议的解码器**认出样本时直接点名该换哪条协议（这是最值钱的一条，`AIChatModelTests` 用两份 SSE 夹具双向钉住），否则把接口真正发来的**帧数**和头尾两段原文贴出来。**帧数不能省**：流的第一帧（OpenAI 的 `role` 分片、Anthropic 的 `message_start`）按协议本来就不产出事件、必然落在样本里，所以只贴开头等于什么都没说 —— 「共切出 1 帧」和「共切出 40 帧」是两种完全不同的故障。新增失败分支时把话说清楚、并把原文带上，不要退回一句兜底；`tools/logic_tests.py` 的「镜像 11」与 Swift 用例读同一份夹具。
 
@@ -206,25 +196,40 @@ Branches that cannot be forced cheaply (SerpAPI's 200-with-error, Exa's failed `
 
 「打开原文」走阅读器、「网页版」走 `links.aihot`（规则 14）都留在这一页里，条目行本身只负责推入它；正文里的**行内链接**由 `.environment(\.openURL, …)` 改写成同一个口径 —— aihot/aihot.virxact.com 主机永远走网页，其余进阅读器（`OpenURLAction` 返回 `.handled`，别把链接丢给系统 Safari）。
 
-**20. 订阅：电脑上的配置 + 两条线路；计费闸门不是缓存，路由是 SSRF 边界.** 订阅页的数据不来自 aihot.news：信源清单是**电脑上的一份 `subscriptions.json`**（App 通过一个 URL 拉取，10 分钟节流，上次成功的原文缓存在 UserDefaults `aihot.subscriptions.configCache`），内容来自 **Dajiala 的付费公众号接口** 与 **用户自建 RSSHub 的 B 站路由**。几条必须守住的线：
-- **配置逐条 salvage**（`SubscriptionConfigParser`）：一条写错只跳过这一条，不整份失败；信源封顶 50 条。B 站 `route` 必须以 `/bilibili/` 开头，拒绝完整 URL、`..`、`#`、`//` —— 配置文件不能变成「让 App 去局域网任意地址取东西」的跳板。公众号的 id 优先用 `biz`，没有就从文章链接的 `__biz` 取，**不能用 `name`**。
-- **公众号按次计费**：`DajialaAPI` 写死 `page: 1`，串行请求、每次之间至少 0.5s（限速 3/s）；自动刷新每个源 **6 小时**一次，手动下拉跳过 6 小时但仍保留 **60 秒**防连点地板。`AppSettings.subscriptionWeChatLastAttempt`（`[sourceID: Double]`）是**计费闸门，不是缓存**：必须在发请求**之前**记录，`clearCache()` 绝不能清它 —— 清了就会让「清除本地缓存」触发一轮付费请求。失败也记一次，避免网络错误变成每进一次 Tab 就再花钱。
-- **Dajiala 的响应结构没有可引用的完整样例**：`AIHOTTests/Fixtures/dajiala-*` 目前是**猜的**，测试注释写明了。真实字段只能靠「设置 → 订阅 → 复制公众号原始响应」（计费一次、脱敏 Key、截断 2 万字符）抓回来替换夹具；在手写 payload 上钉绿色就是规则 13 的教训。HTTP 200 但认不出结构时必须抛错并带**顶层字段名**，不能静默成功。
-- **B 站走 RSS 2.0**：`RSSFeedParser` 先看字节开头，HTML/JSON/Atom 一律报「不是 RSS」；`description` 用 `HTMLTextExtractor` 压成摘要，封面依次取 `media:thumbnail/content`、图片型 `enclosure`、描述里的第一个 `<img>`，`//` 开头补 `https:`。合法的零条目 RSS 是成功，不是错误。
-- **分类是本地关键词规则**（`SubscriptionClassifier`，镜像 21）：标题命中 +3、摘要 +1，每个关键词在每个字段最多一次；中文子串、纯 ASCII 词边界；全角折叠、只把 ASCII A–Z 转小写；平分按 `SubscriptionTopic.allCases`，**0 命中归「周边」**。**不要遍历字典**，不要引入 `round()` 或 locale 相关 API。词库在 Swift 与 `tools/logic_tests.py` 各一份，改一边必须改另一边。
-- **合并/排序/截断是纯函数**（`SubscriptionLogic`，镜像 22）：按 `sourceID` 整体替换；按 `publishedAt` 倒序、无时间最后、同时间按标题 **UTF-8 字节**升序、再按 id；按 id 去重保留第一条；总数封顶 600。剪枝只在**拿得到配置**时做（断网不能把订阅清空）。
-- **自动刷新必须由 tab 选中驱动**：`RootView` 的 `TabView` 有显式 `selection`，`SubscriptionTabView(isActive:)` 只在被选中时 `.task(id:)` / 回到前台才刷新；不要把它挂到 RootView 的 `.task` 上，否则 App 一启动就可能替用户花公众号的钱。
-- **局域网明文 HTTP**：优先让用户填 `电脑名.local`。`Info.plist` 的 `NSAppTransportSecurity` 同时给了 `NSAllowsLocalNetworking` 与 `localhost` / `.local` / 常见私有网段的 `NSExceptionDomains`；**不要**再同时加 `NSAllowsArbitraryLoads`（只要存在 `NSAllowsLocalNetworking`，前者会被系统忽略）。`NSLocalNetworkUsageDescription` 是 iOS 14+ 的硬要求，少了会被静默拒绝且不弹权限框，`preflight.py` 已把它列入必需键。错误文案要分清：`-1009` 多半是本地网络权限被拒（去系统设置放行），`-1022` 才是 ATS 拒绝明文。
-- 设置页的「清除本地缓存」调 `SubscriptionStore.clearCache()`：清快照、横幅、B 站节流；**保留**当前条目（界面不白屏）、配置原文、两个地址、Dajiala Key 与公众号计费时间戳。
+**20. 练习本是用户数据；AI 点评是教练，不是代笔.** 「练一练」把「读完写总结」做成闭环：写作 → 保存 → 对照原文 →（可选）AI 点评。几条必须守住的线：
+- **存储**：`PracticeStore` 落 `Application Support/practice-entries.json` 与 `practice-drafts.json`（用户数据，同 `ChatHistoryStore` 的理由），`clearCache()` 绝不碰；**不设上限**（每条约 1 KB，用户亲手写的东西不该被自动淘汰），也不进 UserDefaults。顺序的权威是**数组顺序**（新记录插到头部），绝不按 `createdAt` 排序（同规则 8）。整文件解码失败按空处理；编码失败保留旧文件。
+- **历史只读**：回看页不提供编辑，「再练一次」生成新记录。保存后在同一 sheet 里「返回修改」会更新**同一条**记录，且文字一变就把旧 AI 点评作废（点评针对的是另一份总结）。
+- **模式切换不丢内容、不自动拆分**：自由写 ↔ 三段式只在**目标模式为空**时搬运，两边都写过就互不覆盖（`PracticeText.transferring`，镜像 23）。机械拆出来的结构不是用户的结构。
+- **草稿按文章自动保存**：按 `article.draftKey`（来源+id）去重，800ms 防抖；工具栏关闭与 `onDisappear` 各自兜底一次（下滑关闭不经过按钮）；保存成正式记录时删除草稿。
+- **点评是教练不是代笔**：`PracticeReviewPrompt`（纯函数，镜像 23）只允许四件事 —— 覆盖度、准确性、一个追问、不重写不夸奖。材料超过 8000 字在字符边界截断并**明确告诉模型后文省略了**（不说的话它会把「没看到」误判成「用户漏写」）。热点条目只有导读，`basis` 必须写「导读」并存进点评快照，**不许假装看过全文**；周报条目有正文时才是「全文」。材料永远不放 system，只放第一条 user 消息（同规则 11 的理由）。
+- **点评请求是精简的一次性请求**：`AIChatAPI.streamChat(includeTools: false)` → 不带 tools、不带 thinking、`max_tokens` 降到 2000/1500（`AIChatRequestBuilder` 里两个 review 常量）。流式读取仍走 `SSELineSplitter` **逐字节**消费（规则 17），绝不用 `bytes.lines`。结果作为 `PracticeReviewSnapshot` 存进记录，之后离线也能看；失败只影响这一条点评，记录照常保存。
+- **文章快照只存导读，不存全文**：全文可能上万字符且能重新取；「再练一次」的基准退回导读（快照里一定有）。所以重练周报条目时不会再有「全文」基准 —— 这是已知取舍，别为它引入正文落盘。
+- **统计按北京时间切天**：`PracticeStatsCalculator` 用 `Asia/Shanghai`、一周从周一开始；今天还没写就从昨天起算（白天不该显示断签）。纯函数、`now` 由调用方传入；镜像 23 两边钉住。
+- **入口不新增 Tab**：iOS 的 `TabView` 最多平铺 5 个，第 6 个会被收进「更多」。所以入口是热点/周报两个详情页工具栏的「练一练」+ 收藏 tab 顶部固定一行「练习本」（收藏为空时也在）。
+- `InOutUITests/PracticeFlowUITests` 走的是真榜单，**需要网络**；拉不到榜时 `XCTSkip`，不让离线环境变成假红。
+
+**21. 外部链接收藏：入口是手动粘贴 / 快捷指令 / URL Scheme，**不要**加分享扩展.** 公众号文章或任意公开网页通过三条路进收藏：收藏页「+」表单（可粘贴）、快捷指令 intent、`aihot://add?url=…`。**不做启动/回前台自动探测剪贴板** —— 这条已按产品要求删除，不要加回来。几条必须守住的线：
+- **不要加 Share Extension。** 当前分发模型是免费 Apple ID + AltStore：扩展与主 App 跨进程传数据只能靠 App Group，而免费 Personal Team 对 App Group 的支持不可靠，AltStore 重签名很可能直接拒签、把安装搞坏；而且 Apple 不支持从分享扩展拉起宿主 App（`NSExtensionContext.open` 只对 Today/iMessage 扩展有效，responder-chain 那套在 iOS 18+ 会被系统拒绝）。要改这条，先改分发模型（付费账号），别在本仓库里偷偷加 entitlement。
+- **链接校验是安全边界**：`SharedLinkURL.normalized` 只收公开的 http/https；拒绝 localhost、`.local`、私有/保留 IPv4（含 100.64/10、198.18/15、192.0.0.0/24）、链路本地 IPv6、裸主机名与带 userinfo 的 URL；长度上限 2048，剥掉 fragment。规则改一处就要同步镜像 24 与 `SavedLinkTests`。
+- **从一段文字里捞链接**：`SharedLinkURL.firstURL(in:)` 必须排除全角标点（`？！，。；、`）与尾随 ASCII 标点 —— 微信/文章里复制出来常常是「链接：https://…？详情见原文」。这个坑在镜像 24 上当场抓出过一次（Swift 与 Python 两边都漏了 `？`）。
+- **剪贴板只在用户点按钮时读，且必须用系统 PasteButton。** 没有自动探测、没有后台轮询。`AddLinkSheet` 的「从剪贴板读取」用 SwiftUI `PasteButton(payloadType: String.self)`（系统视为明确用户意图，不弹 iOS 16 的二次「允许粘贴」）。**不要**程序化读 `UIPasteboard.string` —— 既会弹授权，也是隐私问题。
+- **快捷指令入口只有一条**：`SaveLinkIntent`（App Intents）+ `InOutAppShortcuts`，语义是「收藏链接并打开这篇文章」。它运行在 App 自己的进程里，不需要 App Group；`openAppWhenRun = true`，收藏后把 URL 写进 `AppSettings.pendingOpenLinkURL` 并发 `.aihotOpenLink`，**成功不返回对话框**（`some IntentResult`，不是 `ProvidesDialog`）。`RootView` 在启动 / 回前台 / 收到通知三个时机消费（另有 0.5s 补查：冷启动时 Intent 的 perform 可能比 RootView 晚，只发通知会漏），切到收藏并把 URL 通过 binding 交给 `FavoritesListView`，后者用 `navigationDestination(isPresented:)` 自动 push 文章详情。`aihot://add` 也走同一条路径（收藏并打开）；`aihot://favorites` 只切 tab。快捷指令参数用 `String` 而不是 `URL`：分享输入常常是文本，`URL` 会在动作校验阶段就失败。不要把它做成分享扩展。
+- **URL Scheme 契约**：只认 `aihot://add`（host 必须正好是 `add`，其它路由忽略）；内层 URL 走同一套 `normalized`；`title` 可选（调用方要 percent-encode）。`RootView.onOpenURL` 只做三件事：`SavedLinkImporter.importLink` → 切到收藏 tab → 没带标题就异步 `LinkTitleService` 抓一次再原地更新。导入逻辑抽在 `SavedLinkImporter` 是为了能单测 —— UI 测试进程没有 TCC 权限去打开另一个 App，scheme 的端到端没法可靠地写成 XCUITest（试过，`Request is not trusted`）。
+- **数据模型**：`FavoritesStore.Favorite` 有 `kind`（`.topic` / `.link`），老数据没有 `kind` 时按「有 topic 就是 topic」推断 —— 这条迁移不能回退，否则升级后收藏全丢。两种收藏共用**一个数组的顺序**（新的在前），不按时间排序（同规则 8）；链接按规范化 URL 去重。链接只存 `url + title`，**不显示热度/排名**（它不是榜单条目）。
+- **标题的取法**：普通站点先走 `LinkTitleFetcher`（URLSession）；公众号对普通请求会重定向到 `wappoc_appmsgcaptcha` 验证页（实测），必须落到 `LinkTitleWebFetcher`（隐藏 WKWebView，15 秒上限，同时只允许一个请求）。解析顺序：`og:title`（两种属性顺序）→ 非通用 `<title>`（`LinkTitleParser.isGenericTitle` 过滤「微信公众平台」等）→ 公众号模板里的 `msg_title`。取不到返回 nil，上层用「微信公众号文章」或域名兜底，**绝不编造标题**。打开文章后，若当前标题**仍是兜底值**才用页面真实标题自动补上 —— 用户手改过的标题不能被覆盖。夹具 `link-title.html` 是手写的（测试注释已标明），不是抓取。
+- **内嵌阅读器**：`SavedLinkDetailView` 用 `ArticleWebView`（规则 14）。加载完成后从 `#js_content`（退回 `article`/`main`/`body`）取 `innerText` 存作 `articleText`（上限 20k），供 AI 对话与练习；公众号页面注入 CSS 藏掉站点顶栏/底栏/二维码。微信风控页（`wappoc_appmsgcaptcha`）只给提示、不盖遮罩、不把验证页文字当正文。
+- **AI 对话与练习**：`AIChatSubject` 把「热点」与「导入文章」统一成会话 key + system + newsContext；文章的资料由 `AIChatNewsContext.make(link:articleText:)` 拼（链接原样出现，正文截断到 6000）。练习用 `PracticeArticle.Kind.savedLink`，`articleText` 没取到前「练一练」保持禁用。
+- **UI 用例**：`SavedLinkUITests` 覆盖手动添加、自动抓标题、文章内 AI 对话/练一练；`SaveAndOpenLinkUITests` 覆盖快捷指令的「收藏并打开」消费路径。涉及网络的断言在拿不到内容时 `XCTSkip`。
 
 ### Project file conventions
 
-- **Never add `info:` to a target in `project.yml`.** XcodeGen's `info.path` means "generate a plist *at* this path", not "use this file as the base". With it set, XcodeGen overwrites `AIHOT/Info.plist` with its own defaults and every hand-written key is lost — that silently shipped an app named `AIHOT` instead of `AI 热点榜`, with no `UILaunchScreen` (letterboxed on modern iPhones), rotatable to landscape, and with `CFBundleVersion` frozen at `1` so AltStore could never detect an update. The target sets `INFOPLIST_FILE: AIHOT/Info.plist` in `settings` instead, which is why the committed plist is the real one and why `preflight`'s check of it is meaningful. `CFBundleVersion` must stay `$(CURRENT_PROJECT_VERSION)` so the CI run-number override lands.
-- `AIHOT.xcodeproj` is generated by XcodeGen and gitignored. **Never edit it.** `project.yml`'s `sources: - path: AIHOT` is a directory, so new `.swift` files under `AIHOT/` are picked up automatically with no project edit (same for `AIHOTUITests/` under its own target).
-- **`AIHOTUITests` is a real XCUITest target** (`bundle.ui-testing`, `testTargetName: AIHOT`, no TEST_HOST) whose two cases pin what unit tests and the mirror structurally *cannot* see: Form-row multi-button tap sharing (the 「↑↓ 按了没反应」 regression — one tap fires every button's action in the row unless each has `.buttonStyle(.plain)`) and order/toggle persistence across a relaunch. The scheme's test action includes both `AIHOTTests` and `AIHOTUITests`, so plain `xcodebuild test -scheme AIHOT` runs them. Its launch argument `uitests-reset-search-settings` (`AIHOTApp.init` → `AppSettings.resetSearchToolsForUITests()`) removes **only** the search order/disabled UserDefaults keys — it must never touch the Keychain (only Xcode/simulator can inject launch args; AltStore installs never hit it). Pass it on a persistence test's **first** launch only: the verification relaunch must NOT pass it, or it erases exactly the state it is about to assert.
-- Where to change what: display name → `AIHOT/Info.plist` `CFBundleDisplayName`; bundle id / `MARKETING_VERSION` → `project.yml`; colors, spacing, fonts → `AIHOT/Design/Theme.swift` (`Theme` / `Metrics` / `Typography` are the only place these belong).
-- `AIHOT/Info.plist` is excluded from `sources` in `project.yml` — don't remove that exclude.
-- `AIHOTTests` is hosted (`TEST_HOST` / `BUNDLE_LOADER`) and uses `@testable import AIHOT`; `ENABLE_TESTABILITY` is Debug-only.
+- **Never add `info:` to a target in `project.yml`.** XcodeGen's `info.path` means "generate a plist *at* this path", not "use this file as the base". With it set, XcodeGen overwrites `InOut/Info.plist` with its own defaults and every hand-written key is lost — that silently shipped an app with a default display name instead of `InOut`, with no `UILaunchScreen` (letterboxed on modern iPhones), rotatable to landscape, and with `CFBundleVersion` frozen at `1` so AltStore could never detect an update. The target sets `INFOPLIST_FILE: InOut/Info.plist` in `settings` instead, which is why the committed plist is the real one and why `preflight`'s check of it is meaningful. `CFBundleVersion` must stay `$(CURRENT_PROJECT_VERSION)` so the CI run-number override lands.
+- `InOut.xcodeproj` is generated by XcodeGen and gitignored. **Never edit it.** `project.yml`'s `sources: - path: InOut` is a directory, so new `.swift` files under `InOut/` are picked up automatically with no project edit (same for `InOutUITests/` under its own target).
+- **`InOutUITests` is a real XCUITest target** (`bundle.ui-testing`, `testTargetName: InOut`, no TEST_HOST) whose cases pin what unit tests and the mirror structurally *cannot* see: the practice round trip (hot detail → 练一练 → save → 收藏 tab 里的练习本), adding an external link by hand (收藏 → + → URL → save → 列表出现), automatic title fetching, the imported-article reader with AI chat and 练一练, and the shortcut's save-and-open path (pending link → 收藏 → auto-pushed article). The practice and article cases need live network, so they `XCTSkip` when content doesn't load. The scheme's test action includes both `InOutTests` and `InOutUITests`, so plain `xcodebuild test -scheme InOut` runs them. There is **no launch-argument reset anymore** (the search-provider order/toggle UI was removed), so UI tests must tolerate whatever settings the simulator already has. The one launch argument left is `uitests-open-link=<url>` (`InOutApp.init`), which seeds a favorite plus `AppSettings.pendingOpenLinkURL` to pin the shortcut's save-and-open path; it must not touch the Keychain.
+- Where to change what: display name → `InOut/Info.plist` `CFBundleDisplayName`; bundle id / `MARKETING_VERSION` → `project.yml`; colors, spacing, fonts → `InOut/Design/Theme.swift` (`Theme` / `Metrics` / `Typography` are the only place these belong).
+- `InOut/Info.plist` is excluded from `sources` in `project.yml` — don't remove that exclude.
+- `InOutTests` is hosted (`TEST_HOST` / `BUNDLE_LOADER`) and uses `@testable import InOut`; `ENABLE_TESTABILITY` is Debug-only.
+- The app/project was renamed to **InOut**, but `PRODUCT_BUNDLE_IDENTIFIER` stays `dev.local.aihot.hot` and the URL scheme stays `aihot://` **on purpose**: the bundle id keeps existing installs (收藏 / 练习本 / 对话 / Keychain 凭据) upgrading in place, and the scheme keeps shortcuts users already built working. Don't "tidy" either one without an explicit product decision. `AIHOTAPI` / `AIHOTDate` keep their names because they refer to the upstream aihot.news service, and all 「内容版权归 AIHOT」 attribution copy must stay verbatim.
 
 ### Coding conventions
 
@@ -236,8 +241,7 @@ Branches that cannot be forced cheaply (SerpAPI's 200-with-error, Exa's failed `
 - API model fields stay `Optional` liberally (`Source.name`, etc.) so one malformed item can't blank the whole list on decode.
 - `RegexUtil` exists so no regex library gets added; prefer it over pulling in a dependency.
 - There is no networking in tests, and no fixtures are ever written back — the whole test suite is pure/offline.
-- **New fixtures must be registered in `tools/preflight.py`**: JSON in `JSON_FILES`, RSS/XML in `XML_FILES` (stdlib `ElementTree` parse). A fixture that is a guess rather than a capture must say so in the test comment (rule 13); subscription fixtures `dajiala-*.json` currently are guesses until a real response is pasted back from the in-app 「复制公众号原始响应」 button.
-- The mirror in `tools/logic_tests.py` also covers the SSE line splitter + frame reader + both protocol decoders (against `AIHOTTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read — 镜像 6 asserts the byte path and the line path land on the same round), the tool-call accumulator, the AnySearch response parsing (against `anysearch-search.json`), the AI base-URL normalisation, the news-context builder, the 报道节奏 bucketing (镜像 9, against `story-timeline.json`), the cross-turn history filter (镜像 10, `AIChatModel.history`), the failure wording (镜像 11, `AIChatModel.truncationNotice`), the Tavily response parsing (镜像 12, against `tavily-search.json` / `tavily-extract.json`), the chat-session cap (镜像 13, `ChatHistoryStore.trim` — evict direction pinned), the SerpAPI / Serper / Exa response parsing (镜像 14, against `serpapi-search.json` / `serper-search.json` / `exa-search.json` / `exa-contents.json` + the three `*-error.json` fixtures, with the synthetic branches marked), and the chain's eligibility filter + order/disabled normalization (镜像 15, `SearchToolChain.eligibleProviders` / `AppSettings.normalizeSearchToolOrder` — mirrors `SearchToolChainTests`), and the chat-answer Markdown block splitting (镜像 16, `MarkdownBlocks.parse` — mirrors `MarkdownBlocksTests`, reads `chat-markdown.md`; the Swift file's header comment is the authoritative list of deliberate non-CommonMark deviations), and the leaderboard page parsing (镜像 17, `LeaderboardParser.parseBoard`/`parseDetail` — mirrors `LeaderboardParserTests`, reads the three `leaderboard-*.html` fixtures; see rule 18), the 周报/月报 period keys / range text / month grouping / entry→栏目归属 (镜像 18, `ReportPeriod.title`/`rangeText`/`groupByMonth` + `ReportEntry.kind` — mirrors `ReportPeriodTests` + the decoding assumptions of `ReportDecodingTests`, reads the four `report-*.json` fixtures; see rule 19), and the diagnostics address redaction + tab badge predicate (镜像 19, `DiagnosticReport.hostOnly` / `ReportUnread.isUnread` — mirrors `DiagnosticReportTests` / `ReportUnreadTests`; the redaction is a **security boundary**, because SerpAPI's key rides in the query string), and the 周报/月报 item-page body parsing + item-id extraction (镜像 20, `ReportItemBody.parse` / `ReportItemID.id` — mirrors `ReportItemBodyTests`, reads the four `report-item-*.html` fixtures; see rule 19), and the subscription topic classifier (镜像 21, `SubscriptionClassifier.classify` — mirrors `SubscriptionClassifierTests`, reads `subscription-classify.json`; see rule 20), and the subscription config salvage / RSS / Dajiala / stable id / refresh policy (镜像 22, `SubscriptionConfigParser` / `RSSFeedParser` / `DajialaParser` / `SubscriptionItemID` / `SubscriptionLogic` — mirrors the corresponding tests, reads `subscription-config.json`, `rsshub-bilibili-video.xml` and `dajiala-*.json`; see rule 20). That is the only pre-CI signal for the trickiest logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (Python can't build them), the tool round-trip shapes, the secret store (a fake backend), `ChatHistoryStore`'s disk IO (the mirror only covers the pure `trim`), and the `ReportItemDetailView` body-loading state machine (a `@State` + `.task` race can only be seen by tapping) — and what neither layer sees (taps landing, settings surviving a relaunch) is pinned by `AIHOTUITests`, so a red UI job is a real product bug, not flake, unless proven otherwise.
+- The mirror in `tools/logic_tests.py` also covers the SSE line splitter + frame reader + both protocol decoders (against `InOutTests/Fixtures/anthropic-sse.txt` / `openai-sse.txt`, the same bytes the Swift tests read — 镜像 6 asserts the byte path and the line path land on the same round), the tool-call accumulator, the AI base-URL normalisation, the news-context builder, the 报道节奏 bucketing (镜像 9, against `story-timeline.json`), the cross-turn history filter (镜像 10, `AIChatModel.history`), the failure wording (镜像 11, `AIChatModel.truncationNotice`), the chat-session cap (镜像 13, `ChatHistoryStore.trim` — evict direction pinned), the Tencent Cloud 元宝搜索 signature + response parsing (镜像 25, `TencentWSASignature` / `TencentWSAResponseParser` — mirrors `TencentWSATests`, reads `tencent-wsa-search.json` / `tencent-wsa-error.json`; the search fixture is derived from the official doc example, not a capture), and the chat-answer Markdown block splitting (镜像 16, `MarkdownBlocks.parse` — mirrors `MarkdownBlocksTests`, reads `chat-markdown.md`; the Swift file's header comment is the authoritative list of deliberate non-CommonMark deviations), and the leaderboard page parsing (镜像 17, `LeaderboardParser.parseBoard`/`parseDetail` — mirrors `LeaderboardParserTests`, reads the three `leaderboard-*.html` fixtures; see rule 18), the 周报/月报 period keys / range text / month grouping / entry→栏目归属 (镜像 18, `ReportPeriod.title`/`rangeText`/`groupByMonth` + `ReportEntry.kind` — mirrors `ReportPeriodTests` + the decoding assumptions of `ReportDecodingTests`, reads the four `report-*.json` fixtures; see rule 19), and the diagnostics address redaction + tab badge predicate (镜像 19, `DiagnosticReport.hostOnly` / `ReportUnread.isUnread` — mirrors `DiagnosticReportTests` / `ReportUnreadTests`; the redaction is a **security boundary**, because API base URLs may carry credentials in their query string), and the 周报/月报 item-page body parsing + item-id extraction (镜像 20, `ReportItemBody.parse` / `ReportItemID.id` — mirrors `ReportItemBodyTests`, reads the four `report-item-*.html` fixtures; see rule 19), the practice-book rules (镜像 23, `PracticeText.transferring` / `PracticeStatsCalculator` / `PracticeReviewPrompt` / `ReportItemBody.plainText(blocks:)` — mirrors `PracticeLogicTests`; no fixtures, these are pure text rules; see rule 20), and the external-link rules (镜像 24, `SharedLinkURL.normalized` / `firstURL` / `SharedLinkInput.parse` / `LinkTitleParser` incl. generic-title filtering and `msg_title` / legacy `Favorite` kind inference — mirrors `SavedLinkTests` / `FavoritesStoreTests`, reads `link-title.html`; see rule 21). That is the only pre-CI signal for the trickiest logic, so **run it before pushing**. What it cannot cover stays in Swift tests: the actual request bodies (Python can't build them), the tool round-trip shapes, the secret store (a fake backend), `ChatHistoryStore`'s disk IO (the mirror only covers the pure `trim`), and the `ReportItemDetailView` body-loading state machine (a `@State` + `.task` race can only be seen by tapping) — and what neither layer sees (taps landing, settings surviving a relaunch) is pinned by `InOutUITests`, so a red UI job is a real product bug, not flake, unless proven otherwise.
 - Secrets never go in `@AppStorage`/`@AppStorage`-like paths: the API key lives in the Keychain (`AIChatSecretStore`), with a deliberate UserDefaults fallback **that the UI must disclose**. Two error codes to keep apart: `errSecItemNotFound (-25300)` means "nothing saved yet" (never a failure, and treating it as one writes an empty value on first launch), while something like `errSecMissingEntitlement (-34018)` is a real failure and triggers the fallback.
 
 ### Attribution constraints (product, not just legal)

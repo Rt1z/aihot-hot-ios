@@ -4,8 +4,8 @@ name: iOS Unsigned IPA
 # 两个 job 互相独立（不互相 needs），所以即使单测失败，你依然能拿到 IPA 先装机。
 
 on:
-  # 日常测试/打包在本地跑：tools/local_ci.sh。
-  # 这里只保留手动触发，避免每次推 main 都去排 macOS runner。
+  push:
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
 jobs:
   test:
     name: Tests
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
         run: |
           python3 tools/make_appicon.py
           # 图标没生成出来会被 actool 报成看不懂的错，这里先拦住
-          test -s AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+          test -s InOut/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -43,7 +43,7 @@ jobs:
       - name: Show generated targets
         run: |
           xcodegen --version
-          xcodebuild -list -project AIHOT.xcodeproj
+          xcodebuild -list -project InOut.xcodeproj
 
       - name: Logic mirror tests (python)
         run: python3 tools/logic_tests.py
@@ -70,10 +70,10 @@ jobs:
           mkdir -p build
           # 模拟器构建不需要证书，这里刻意不传 CODE_SIGNING_* 覆盖，
           # 走 Xcode 对模拟器的默认签名方式（最标准的调用）。
-          # scheme 的 test action 里有 AIHOTTests 与 AIHOTUITests，两条都会跑。
+          # scheme 的 test action 里有 InOutTests 与 InOutUITests，两条都会跑。
           xcodebuild test \
-            -project AIHOT.xcodeproj \
-            -scheme AIHOT \
+            -project InOut.xcodeproj \
+            -scheme InOut \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath build \
             | tee build/test.log
@@ -89,7 +89,7 @@ jobs:
 
   ipa:
     name: Build IPA
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +110,7 @@ jobs:
         run: |
           python3 tools/make_appicon.py
           # 图标没生成出来会被 actool 报成看不懂的错，这里先拦住
-          test -s AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+          test -s InOut/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -118,14 +118,14 @@ jobs:
       - name: Show generated targets
         run: |
           xcodegen --version
-          xcodebuild -list -project AIHOT.xcodeproj
+          xcodebuild -list -project InOut.xcodeproj
 
       - name: Build (unsigned)
         run: |
           set -o pipefail
           xcodebuild clean build \
-            -project AIHOT.xcodeproj \
-            -scheme AIHOT \
+            -project InOut.xcodeproj \
+            -scheme InOut \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -139,13 +139,13 @@ jobs:
 
       - name: Package unsigned IPA
         run: |
-          APP="build/Build/Products/Release-iphoneos/AIHOT.app"
+          APP="build/Build/Products/Release-iphoneos/InOut.app"
           test -d "$APP" || { echo "app bundle not found at $APP"; ls -R build/Build/Products; exit 1; }
-          rm -rf Payload AIHOT-unsigned.ipa
+          rm -rf Payload InOut-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP" Payload/
-          zip -qry AIHOT-unsigned.ipa Payload
-          ls -lh AIHOT-unsigned.ipa
+          zip -qry InOut-unsigned.ipa Payload
+          ls -lh InOut-unsigned.ipa
 
       # 备用包：iphoneos 上的 ad-hoc 签名并不是官方支持的组合，
       # 可能因为找不到证书而失败，所以整段允许失败——失败也不影响主包。
@@ -154,8 +154,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -project AIHOT.xcodeproj \
-            -scheme AIHOT \
+            -project InOut.xcodeproj \
+            -scheme InOut \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -172,23 +172,23 @@ jobs:
       - name: Package ad-hoc IPA
         continue-on-error: true
         run: |
-          APP="build-adhoc/Build/Products/Release-iphoneos/AIHOT.app"
+          APP="build-adhoc/Build/Products/Release-iphoneos/InOut.app"
           test -d "$APP" || { echo "app bundle not found at $APP"; exit 1; }
-          rm -rf Payload-adhoc AIHOT-adhoc.ipa
+          rm -rf Payload-adhoc InOut-adhoc.ipa
           mkdir -p Payload-adhoc
           cp -R "$APP" Payload-adhoc/
-          zip -qry AIHOT-adhoc.ipa Payload-adhoc
-          ls -lh AIHOT-adhoc.ipa
+          zip -qry InOut-adhoc.ipa Payload-adhoc
+          ls -lh InOut-adhoc.ipa
 
       - name: Summary
         if: always()
         run: |
           {
-            echo "### AIHOT 热点榜 构建结果"
+            echo "### InOut 构建结果"
             echo ""
             echo "- run number (CFBundleVersion): ${{ github.run_number }}"
-            echo "- 未签名包: AIHOT-unsigned.ipa（优先用这个）"
-            echo "- 备用包: AIHOT-adhoc.ipa（AltStore 报签名错误时改用它）"
+            echo "- 未签名包: InOut-unsigned.ipa（优先用这个）"
+            echo "- 备用包: InOut-adhoc.ipa（AltStore 报签名错误时改用它）"
             echo ""
             echo "侧载步骤见仓库 README 的「装机」一节。"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -196,16 +196,16 @@ jobs:
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: AIHOT-unsigned-ipa
-          path: AIHOT-unsigned.ipa
+          name: InOut-unsigned-ipa
+          path: InOut-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
 
       - name: Upload ad-hoc IPA
         uses: actions/upload-artifact@v4
         with:
-          name: AIHOT-adhoc-ipa
-          path: AIHOT-adhoc.ipa
+          name: InOut-adhoc-ipa
+          path: InOut-adhoc.ipa
           if-no-files-found: ignore
           retention-days: 30
 

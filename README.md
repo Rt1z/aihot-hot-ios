@@ -1,20 +1,10 @@
-# AIHOT 热点榜（iOS 原生 App）
+# InOut（iOS 原生 App）
 
 把 [aihot.news](https://aihot.news) 的**热点榜**做成一个 iPhone 原生 App（SwiftUI 重绘，不是在浏览器里打开网页）。
-另外加了一个「订阅」页：微信公众号（Dajiala 付费接口）+ B 站（你自己电脑上的 RSSHub），
-按**内容**归入 科技 / 健康 / 成长 / 职业 / 周边 五个板块。
-本仓库只做这两块；aihot.news 的「主题」不在范围内。
-
-**有 Mac 时（主路径）**：测试和打包都在本机跑，一条命令搞定，不用等 GitHub 排队：
-
-```bash
-tools/local_ci.sh test    # 单元测试 + UI 测试
-tools/local_ci.sh ipa     # 未签名 IPA → ./AIHOT-unsigned.ipa
-```
+本仓库只做「热点榜」一个板块；「主题」不在范围内。
 
 **没有 Mac 也能跑通**：GitHub Actions 的 macOS runner 负责编译，产出**未签名 IPA**，
-你用 AltStore + 免费 Apple ID 就能装到自己的 iPhone 上。工作流现在是**只手动触发**，
-不会每次 push 都跑；需要云端复验时在 Actions 里点 Run workflow 即可。
+你用 AltStore + 免费 Apple ID 就能装到自己的 iPhone 上。
 
 ---
 
@@ -27,17 +17,17 @@ tools/local_ci.sh ipa     # 未签名 IPA → ./AIHOT-unsigned.ipa
    ```bash
    git init
    git add .
-   git commit -m "AIHOT 热点榜 iOS"
+   git commit -m "InOut iOS"
    git branch -M main
    git remote add origin https://github.com/<你的用户名>/aihot-hot-ios.git
    git push -u origin main
    ```
    > 没有 git 环境也没关系：在仓库页面用 **Add file → Upload files**，把整个目录（含隐藏的 `.github` 文件夹）拖进去，GitHub 会保留目录结构。
 
-3. 打开 **Actions** 标签页 → `iOS Unsigned IPA` → **Run workflow** 手动触发（工作流现在不会随 push 自动跑）。
+3. 推上去后打开 **Actions** 标签页，会看到 `iOS Unsigned IPA` 工作流在跑（也可以在 Actions 里点 **Run workflow** 手动触发）。
    跑完（约 3–6 分钟）在 run 页面底部下载 artifact：
-   - **`AIHOT-unsigned-ipa`** ← 用这个。未签名包由 AltStore 现场用你的 Apple ID 重新签名，这是常规做法
-   - `AIHOT-adhoc-ipa` ← 备用包，**可能不存在**：iphoneos 上的 ad-hoc 签名不是官方支持的组合，CI 里那一步允许失败（失败不影响主包）
+   - **`InOut-unsigned-ipa`** ← 用这个。未签名包由 AltStore 现场用你的 Apple ID 重新签名，这是常规做法
+   - `InOut-adhoc-ipa` ← 备用包，**可能不存在**：iphoneos 上的 ad-hoc 签名不是官方支持的组合，CI 里那一步允许失败（失败不影响主包）
    - `test-log` / `build-logs` ← 出错时用来看日志
 
 ### 第 2 步：在 Windows 上准备 AltStore
@@ -68,7 +58,7 @@ tools/local_ci.sh ipa     # 未签名 IPA → ./AIHOT-unsigned.ipa
 
 | 官网（/hot） | App |
 | --- | --- |
-| 左侧导航 + 顶栏 + 底部 tab（精选/日报/模型榜/我的） | 底部栏是 App 自己的五个 tab：**热点 / 周报 / 模型榜 / 订阅 / 个人**（收藏与设置收在「个人」里） |
+| 左侧导航 + 顶栏 + 底部 tab（精选/日报/模型榜/我的） | 底部栏是 App 自己的五个 tab：**热点 / 周报 / 模型榜 / 收藏 / 设置** |
 | 榜单头：过去 48 小时… · 更新时间 · 实时热度 · 怎么算 | 标题下两行说明，「怎么算」按钮在应用内打开官网该页 |
 | NO.01–03 大卡（序号/爆新徽章/涨跌/标题/正文/头像行/热度指数） | 3 张全宽卡；正文取 story digest（与官网同源），4 行截断 |
 | 头像行「+10 邵猛、Oran Ge 等 7 个来源·16 位参与者」 | 字母头像栈（来源名哈希取色）+「N 个来源 · M 位参与者」 |
@@ -80,18 +70,18 @@ tools/local_ci.sh ipa     # 未签名 IPA → ./AIHOT-unsigned.ipa
 | （App 新增）报道节奏 | 把这条的报道按**北京时间**切成时间桶画成柱状图（见下），中间没人跟的时段是空柱子 —— 「正在爆发」和「已经凉了」一眼能分开 |
 | 原文链接 | 应用内 `SFSafariViewController` 打开，**默认进系统阅读器模式**（只有正文）；旁边留一个「网页版」入口，抽得不好时点它退回原网页 |
 | 详情页右上「对话」 | AI 对话弹窗：多轮、流式；模型读过这条的摘要与时间线，Anthropic 协议下还能联网搜索、读原文（见第 4 节） |
-| （App 新增）收藏 | 「个人 → 收藏」：按收藏时间倒序、左滑「取消收藏」。详情页是唯一的收藏入口（列表行上刻意不放按钮，避免按钮套在整行的链接里） |
-| （App 新增）订阅 | 底部「订阅」tab：微信公众号（Dajiala 付费接口）+ B 站（你自己电脑上的 RSSHub）。**按内容**归入 科技 / 健康 / 成长 / 职业 / 周边 五个板块（不是按信源分类），点条目进详情页再打开原文。公众号每个源最多 6 小时自动刷新一次（按次计费），下拉手动刷新；B 站免费，最多 10 分钟刷新一次 |
-| （App 新增）个人 | 底部「个人」tab：收藏、设置与订阅概况。收藏、设置、对话记录都只保存在本机；「设置 → 订阅」里填 RSSHub 地址、订阅配置文件地址与 Dajiala Key |
+| （App 新增）收藏 | 底部「收藏」tab：按收藏时间倒序、左滑「取消收藏」。详情页是唯一的收藏入口（列表行上刻意不放按钮，避免按钮套在整行的链接里） |
+| （App 新增）练习本 | 输出练习：热点/周报详情页右上「练一练」，写完保存后对照原文导读（周报条目还能基于全文），自评「我漏了什么」；可选 AI 点评（只指出遗漏与编造、不替你重写）。记录收在「收藏」tab 顶部的练习本里，按时间倒序、可左滑删除；回看只读，想再练一遍就「再练一次」 |
+| （App 新增）外部链接收藏 | 公众号文章或任意网页链接：用「收藏」页右上角「+」手动添加（表单里可从剪贴板读取），或在快捷指令里用「收藏并打开文章」（收藏后直接进这篇文章，不弹提示）。与热点收藏混在同一个列表；点开是**内嵌阅读器**（原文全文、尽量保持原样式，不用跳转），页内可以直接 **AI 对话** 和 **练一练**。链接详情菜单里仍保留「在阅读器打开 / 在 Safari 打开」作为兜底 |
 | /leaderboard 模型榜 | 底部「模型榜」tab：综合/编程/科研/专业办公/知识问答五个分类分段切换，30 行（名次/模型/厂商/上线日期/三档价格/评分/覆盖率）；点一行进模型详情页（概览评分与价格、四张领域卡、逐项公开成绩）；页头「N 项评测 · N 家机构 · 更新时间」行右端的「怎么算」和页脚来源回链都通向官网。榜单没有公开 JSON 接口，数据从页面 HTML 解析（解析失败保留旧数据 + 横幅） |
 | /weekly、/monthly 周报月报 | 底部「周报」tab：周报/月报分段切换，**分段控件正下方**还有一个「看哪一期」的下拉 —— 列出当前栏的期次（「最新一期」+ 往期各期，按月分组），选中往期就把上方正文**就地换成那一期**（往期内存永久缓存，回看不再请求）；切栏目时选择重置回最新一期。最新一期全文（标题/综述/带编号的分栏「01 模型发布/更新」+ 本版导读）；往期按月分组（点进看那一期全文）。条目点开是**应用内详情页**：上半是 JSON 里已有的字段（标题/来源/时间/AI 导读），下半是**站内条目页的完整正文**（分节标题、段落、要点、行内链接，链接一眼可辨、点开仍在应用内），取不到正文时静默退回只有导语那一版；「打开原文」进系统阅读器 + 「网页版」退回站内条目页。页头行右端「网页版」与页脚来源回链通向官网。有新一期时 tab 上挂「新」角标（进 tab 看过即消失；新装用户第一次看到某一期不挂）。有公开 JSON 接口（`/api/v1/weeklies`、`/api/v1/monthlies`，带 ETag、`s-maxage=300`），断网显示缓存快照 + 横幅 |
 
-配色 token 全部集中在 `AIHOT/Design/Theme.swift`（近黑底 + 热度橙，深浅色跟随系统），想改风格只改这一个文件。
+配色 token 全部集中在 `InOut/Design/Theme.swift`（近黑底 + 热度橙，深浅色跟随系统），想改风格只改这一个文件。
 
 ### 关于「报道节奏」
 
 同一份报道时间线，换个看法：横轴是时间、纵轴是那一格里有几条报道。规则都在
-`AIHOT/Services/ReportTimeline.swift`（纯函数，另有 Python 镜像与单测）：
+`InOut/Services/ReportTimeline.swift`（纯函数，另有 Python 镜像与单测）：
 
 - 粒度三档 —— **15 分钟 / 1 小时 / 1 天**，从细到粗取第一个「不超过 24 根柱子」的。真实数据基本都落在前两档；
 - 时间按**北京时间**对齐（和列表里的时间显示同一个口径）；
@@ -99,6 +89,49 @@ tools/local_ci.sh ipa     # 未签名 IPA → ./AIHOT-unsigned.ipa
 - 只统计接口返回里**带发布时间**的报道；`reportCount` 比实际条数多时（接口只给最近一批），图下面会写明这一点，**不编造数字**；
 - 没有发布时间的报道图里不画，但仍然留在下面的文字时间线里；
 - 有发布时间的报道少于 2 条、或全挤在同一格里 —— 这一节**不出现**（一根柱子没有可比性）。
+
+### 关于「练习本」
+
+训练的是「读完能不能用自己的话讲清楚」，不是做笔记。所以：
+
+- 两种写法可切换：**自由写** / **三段式**（一句话主旨 + 最多 3 个要点 + 我的判断）。切换**不丢内容**，也不自动拆分 —— 机械拆出来的结构不是你的结构；
+- 保存后先**对照原文导读**，自己标「我漏了什么」：这一步即时、离线、不花钱，其实是最有效的反馈；
+- **AI 点评是可选的第二下**：复用「设置 → AI 对话」里你配置的接口，只做覆盖度 / 准确性 / 一个追问，**不重写、不打分**。热点条目只有导读，点评会明说「基于导读」；周报条目有完整正文；
+- 练习记录是**用户数据**：存 Application Support，不设上限，「清除本地缓存」不碰它。历史只读，想改就「再练一次」生成新记录；
+- 草稿按文章自动保存：写到一半退出、锁屏、杀掉 App，回来还在。
+
+### 关于「公众号文章 / 外部链接」
+
+微信文章对普通网络请求会返回风控验证页（`wappoc_appmsgcaptcha`），标题和正文都拿不到；
+只有真正的浏览器能打开。所以这里的做法是：**只存链接与标题，阅读时用内嵌 WKWebView 打开原文**。
+
+**两个入口**
+
+1. **手动添加**：「收藏」→ 右上角「+」→ 粘贴/输入链接（表单里的「从剪贴板读取」用的是系统 `PasteButton`，不会弹 iOS 16 的「允许粘贴」二次授权）→ 自动抓标题 → 保存。App **不会**在启动/回前台时自动探测剪贴板。
+2. **快捷指令**：App 内置「收藏并打开文章」这一个 intent —— 收藏链接后直接打开 App 并进入这篇文章，跳转完不弹任何提示。它可以加进分享表单；高级用户还可以用 `aihot://add?url=<百分号编码的链接>&title=<可选标题>`（同样收藏并打开），或 `aihot://favorites`（只切到收藏页）。
+
+**阅读**
+
+- 点开一条链接进**内嵌阅读器**，直接显示原文全文，尽量保持原样式；公众号页面会藏掉站点顶栏/底栏与二维码。
+- 微信要求风控验证时，页面会显示验证页并给出提示；验证完成后正文自动加载。
+- 菜单里仍保留「在阅读器打开 / 在 Safari 打开」作为逃生口（系统阅读器不适合内嵌，这条路仍然有效）。
+
+**标题**
+
+- 普通站点先走轻量请求；公众号改用一个隐藏的 WKWebView（因为普通请求会被风控页拦掉）。
+- 解析顺序：`og:title` → 页面 `<title>`（跳过「微信公众平台」这类通用标题）→ 公众号模板里的 `msg_title`。
+- 抓不到就用「微信公众号文章」或域名兜底，**绝不编造标题**；打开文章后，若标题仍是兜底值，会用页面真实标题自动补上（用户手改过的标题不会被覆盖）。
+
+**AI 与练习**
+
+- 文章页右上角可以直接 **AI 对话**：模型读到标题、链接与正文，需要时会联网搜索或读取文中链接。
+- 也可以 **练一练**：正文取到后才可点，点评与练习都基于全文。
+
+**其他约束**
+
+- 只接受**公开的 http/https 网页**：localhost、`.local`、私有网段、裸主机名、带用户名的 URL 一律拒绝（这是安全边界，不是建议）。
+- 链接与热点收藏**混在同一个列表**里，按收藏时间倒序；链接只存地址与标题，不显示热度/排名。
+- 不做系统分享扩展：当前免费 Apple ID + AltStore 的分发方式下，扩展跨进程传数据只能靠 App Group（免费 Personal Team 支持不可靠，AltStore 可能拒签），而且 Apple 不支持从分享扩展拉起主 App。手动粘贴 + 快捷指令 + URL Scheme 是零 entitlement 的可靠替代。
 
 ---
 
@@ -141,71 +174,6 @@ tools/local_ci.sh ipa     # 未签名 IPA → ./AIHOT-unsigned.ipa
 系统清理碰不到），按新闻分会话、**最多保留最近 50 条**（超出淘汰最旧，设置页里写明了这个数）。
 「清除本地缓存」同样不动它，清空是「设置 → 对话记录 → 清除对话记录」的单独动作（也会先弹确认）。
 
-### 订阅：公众号 + B 站（自己准备两个地址）
-
-订阅页不是 AIHOT 的接口，需要你在电脑上准备两样东西：
-
-1. **一个自建 RSSHub**（B 站内容），默认端口 1200；
-2. **一份 `subscriptions.json`**（信源清单），用任意静态文件服务器提供。
-
-```bash
-mkdir -p ~/aihot-subscriptions
-# 把 subscriptions.json 放进这个目录，然后：
-python3 -m http.server 8088 --bind 0.0.0.0 --directory ~/aihot-subscriptions
-```
-
-手机与电脑在同一 Wi-Fi，然后在 **个人 → 设置 → 订阅** 里填：
-
-- **订阅配置地址**：`http://你的电脑名.local:8088/subscriptions.json`
-- **RSSHub 地址**：`http://你的电脑名.local:1200`
-- **Dajiala Key**：公众号抓取用，存在系统钥匙串；留空则只显示 B 站内容。
-
-> **优先用电脑的本机名（`MacBook.local`），不要用裸 IP。** iOS 17 起 ATS 默认拦明文 HTTP 到 IP 地址；
-> 本仓库的 `Info.plist` 已放行 `localhost` / `.local` 与常见私有网段，但不同 iOS 版本的行为并不完全一致。
-> 第一次访问局域网时系统会问「允许 App 访问本地网络」，拒绝后要到这里改：
-> 系统设置 → 隐私与安全性 → 本地网络。
-
-配置文件格式（`docs/subscriptions.example.json` 是同一份）：
-
-```json
-{
-  "version": 1,
-  "wechat": [
-    { "name": "某公众号", "url": "https://mp.weixin.qq.com/s/xxxx", "biz": "Mzkx..." }
-  ],
-  "bilibili": [
-    { "name": "影视飓风", "route": "/bilibili/user/video/946974" },
-    { "name": "某 UP 主", "uid": "123456" }
-  ]
-}
-```
-
-- 公众号至少填 `url` 或 `biz`；`biz` 更稳（换示例文章不会重置计费窗口）。`name` 可省，取数后用接口返回的名字。
-- B 站填 `route`（必须以 `/bilibili/` 开头，允许查询串）或 `uid`。路由只能是 RSSHub 站内路径，
-  完整 URL、`..`、`#` 会被拒绝 —— 配置文件不能变成「让 App 去局域网任意地址取东西」的跳板。
-- 单条写错只跳过这一条，不会让整份配置失效；总数封顶 50 条。
-- **配置文件里不要放任何 Key**；Dajiala Key 只存在手机钥匙串里。
-
-公众号走 Dajiala 的 `POST https://www.dajiala.com/fbmain/monitor/v3/post_history`，**按次计费（约 ¥0.06/次）**：
-
-- 只取第 1 页；自动刷新每个公众号最多 **6 小时一次**，失败也算「试过了」，不会形成付费重试循环；
-- 下拉手动刷新会跳过 6 小时门槛（仍有 60 秒防连点），**会重新抓取全部启用的公众号**；
-- 「清除本地缓存」**不会**清掉这个计费计时，也不会清地址与 Key；
-- 错误码 `-1`（请求过快）、`10002`（Key 无效）、`20001`（余额不足）都有对应的中文提示；
-- 「设置 → 订阅」里有一个「复制公众号原始响应（调试用）」：它花一次调用，把脱敏后的真实响应复制到剪贴板，
-  用来替换 `AIHOTTests/Fixtures/dajiala-post-history.json`。**这个解析器的字段别名目前是按公开资料猜的**，
-  真实抓包回来后应当收紧。
-
-B 站走 `GET {RSSHub}/bilibili/user/video/{uid}`（RSS 2.0），免费，自动刷新最多 10 分钟一次。
-某个源失败只影响它自己：旧条目留着，横幅按「公众号 / B 站」分开。
-
-**分类是本地关键词规则**（`SubscriptionClassifier`），不调 AI、不联网：标题命中一个关键词算 3 分，
-摘要算 1 分，平分按 科技 → 健康 → 成长 → 职业 → 周边 的顺序，**什么都没命中就归到「周边」**。
-词库与镜像 21 逐字一致；改词库要同时改 `tools/logic_tests.py`。
-
-订阅条目存在 `Caches/subscriptions.json`（纯缓存，可被系统清掉）；配置原文与公众号计费时间戳存在
-UserDefaults（跨启动保留）。两者都跟收藏/对话记录分开。
-
 ### 关于「热度指数」这件事
 
 公开接口**不返回**热度指数、涨跌（↑629%/持平/↓16%）、爆/新徽章、24 小时走势，也不返回头像图片（站内图片走带签名的 `/api/img-proxy`，既不能自己构造也不能长期盗链）。所以：
@@ -232,37 +200,29 @@ UserDefaults（跨启动保留）。两者都跟收藏/对话记录分开。
 | API Key | 你的 Key | 你的 Key |
 | 联网搜索 / 读网页 | 可以 | 可以（两边一样） |
 
-联网搜索与读取网页由「设置 → AI 对话 → **搜索工具**」里那**一串**工具提供 —— 五家
-（[AnySearch](https://anysearch.com)、[Tavily](https://docs.tavily.com)、
-[SerpAPI](https://serpapi.com/search-api)、[Exa](https://exa.ai)、[Serper](https://serper.dev)，
-默认 AnySearch 排第一，老用户无感）按你排好的顺序轮流上：**一家失败（Key 无效、超限、网络问题）
-自动换下一家，全部失败时报排第一那家的错**。**两条协议走同一条路** —— 工具声明是通用的，
-顺序只换「谁来执行」，请求体一行不动：
+联网搜索与读取网页：
 
-| 搜索工具 | Key | 能力 | 备注 |
-| --- | --- | --- | --- |
-| AnySearch | **可选**：留空即用匿名（限速更低），Console 在 anysearch.com | 搜索 + 读网页 | search 给排好的 Markdown；extract 给 JSON 文档字符串。**Key 无效不会退回匿名**（想匿名就把字段清空），链会先换下一家 |
-| Tavily | **必填**，Console 在 tavily.com | 搜索 + 读网页 | search 带可选的 `answer` 引用块；extract 直接给 Markdown（`raw_content`） |
-| SerpAPI | **必填**（Key 走查询参数） | 仅搜索 | 读网页会被链自动跳过；报错文案里**绝不带**完整请求地址 |
-| Exa | **必填**，Console 在 exa.ai | 搜索 + 读网页 | 搜索自带 500 字摘要；读网页最多回 8000 字（超出截断） |
-| Serper | **必填**，Console 在 serper.dev | 仅搜索 | 请求最简：`X-API-KEY` 头 + `{"q": …}`；读网页会被链自动跳过 |
+- **搜索**由腾讯云「元宝搜索」（Tencent Yuanbao Search，接口 `SearchPro`）提供。它没有简单的
+  API Key，用的是腾讯云的 **SecretId + SecretKey**（TC3-HMAC-SHA256 签名）。先在腾讯云控制台
+  **开通元宝搜索**，再到「访问管理 → API 密钥管理」创建密钥，填到「设置 → AI 对话 → 联网搜索」。
+- **读网页**由 App 自己抓取（`URLSession` + `HTMLTextExtractor`），不经过腾讯云；公众号文章
+  如果落到风控验证页，会明确报错，让你去 App 内的阅读器完成验证。
+- **两条协议走同一条路**：工具声明是通用的，换协议不影响搜索 / 读网页，请求体一行不动。
 
 几个要知道的点：
 
 - **先点「测试连接」**：它只拉一次模型列表、不产生生成计费，并顺带核对你填的模型名在不在里面。
-- **每家旁边都有「测一下」**：用**当前输入框里的 Key** 发一次最小搜索（不点「保存密钥」也能验），
-  通了显示「✓ 通了」，不通贴出该家的错误原话。会消耗该家一次搜索额度（AnySearch 匿名免费）。
+- **「测试搜索」**：用当前输入框里的 SecretId / SecretKey 发一次真实搜索（不点「保存密钥」也能验），
+  通了显示「✓ 元宝搜索已连通」，失败贴出腾讯云的错误原话。会消耗一次搜索额度。
 - **「协议」和「接口地址」必须配套** —— 这是最容易踩的一处：同一家服务商的两条协议**地址不一样**。
   以 DeepSeek 为例，OpenAI 兼容填 `https://api.deepseek.com`（带不带 `/v1` 都行），
   Anthropic 兼容才填 `https://api.deepseek.com/anthropic`。填反了 App 不会含糊其辞：它会
   用另一条协议的解码器认出这是谁家的流，并直接告诉你该把协议改成哪一个。
-- **Key 存在系统钥匙串里**（七份：两条协议各一份 + 五家搜索各一份），只在本机、不进备份。
-  万一这台设备的签名环境不允许用钥匙串，会退回应用内存储，并**在设置页里明确写出来**。
-- **AnySearch 的 Key 填错了不会自动退回匿名**：链会**换下一家**，全部家都失败时才看到它的
-  「Key 无效」；想用匿名就把那个字段清空。其余四家同理 —— 报无效就换下一家，
-  全部失败时报**排第一那家**的错，先查那家的 Key 或开关，别急着换顺序。
-- **顺序与开关即点即存**（↑↓ 换位、开关一拨就写入，重启还在）；必填 Key 没填的家**不参与**
-  （行内会标「未填 Key，暂不参与」），Key 要点「保存密钥」才写进钥匙串。
+- **密钥存在系统钥匙串里**（四份：两条对话协议各一份 + 元宝搜索的 SecretId / SecretKey 各一份），
+  只在本机、不进备份。万一这台设备的签名环境不允许用钥匙串，会退回应用内存储，
+  并**在设置页里明确写出来**。
+- **鉴权失败**：到「设置 → AI 对话 → 联网搜索」核对 SecretId / SecretKey，并确认密钥属于
+  **已开通元宝搜索**的账号；子账号还需要在访问管理里授权。错误里带 RequestId，可用来查腾讯云工单。
 - **对话按新闻自动保存**：同一条新闻的对话存在同一个会话里，杀掉 App 重开还在；
   按最后更新**最多保留最近 50 条**，超出淘汰最旧（设置页里写明）。
   弹窗里的垃圾桶按钮只清**当前这条**；全清是「设置 → 对话记录 → 清除对话记录」（会先弹确认）。
@@ -272,14 +232,12 @@ UserDefaults（跨启动保留）。两者都跟收藏/对话记录分开。
 - **回答按 Markdown 排版**：标题、列表、代码块（等宽字体 + 语言标签）、引用、分隔线、
   表格都会正常渲染，行内的**加粗** / `代码` / 链接照旧；流式生成中就开始排版，
   代码块是逐行长出来的。复制按钮拿的是 Markdown 原文，粘出去格式不丢。
-- **费用**：模型那边按你所用服务商计费；搜索工具每搜一次、每读一个网页也算一次调用
-  （AnySearch 匿名有免费额度；Tavily / SerpAPI / Exa / Serper 按你自己账号的额度计）。
-  所以模型在一轮里连搜三次，就是三次搜索的量。
+- **费用**：模型按你所用服务商计费；元宝搜索按腾讯云该产品的计费与配额（一般按次/套餐）。
+  读网页是 App 自己发的请求，不产生搜索费用。模型一轮里连搜三次，就是三次搜索的量。
 - **一次提问最多跑 5 轮工具**，防止它来回搜个没完。
 - **国内网络**：`api.anthropic.com` 直连通常不通，接口地址可以填兼容 Anthropic Messages 协议的
-  中转地址。**AI 接口请用 https**：iOS 默认不允许明文 HTTP，填 `http://` 会明确报错。
-  （只有「订阅」那条线为局域网 RSSHub / 配置文件放行了 `localhost`、`.local` 与常见私有网段，
-  见第 3 节；不要把这个例外理解成整个 App 都允许明文。）
+  中转地址。**只支持 https**：iOS 默认不允许明文 HTTP，填 `http://` 会明确报错；真要让某个
+  局域网地址走 http，得自己在 `InOut/Info.plist` 里加 `NSExceptionDomains` 例外。
 - **快 / 深**：默认 `"low"`（手机问答对延迟敏感）。想让它想得更久，改
   `AIChatRequestBuilder.effort`。
 
@@ -289,19 +247,18 @@ UserDefaults（跨启动保留）。两者都跟收藏/对话记录分开。
 project.yml                 XcodeGen 工程定义（改包名/显示名/版本只改这里）
 .github/workflows/ios.yml   云编译：跑单测与 UI 测试 + 出两个 IPA + 上传 artifact
 tools/make_appicon.py       现场生成 1024 图标（有 Pillow 用 Pillow，没有用标准库）
-tools/local_ci.sh           本地测试 / 打包（主路径）：test 跑单测 + UI 测试，ipa 出未签名包
-tools/preflight.py          构建前自检：JSON / XML / plist / 路径引用 / Python 语法
-tools/logic_tests.py        纯逻辑镜像测试：用 Python 把解析/ID/时间/分类逻辑跑一遍
-                            （和 Swift 单测读同一份夹具，本地脚本里先于编译执行）
-docs/subscriptions.example.json  电脑上那份订阅配置的样例
-AIHOT/
-  Info.plist                含 ATS 本地网络例外与 NSLocalNetworkUsageDescription
-  RootView.swift            @main + 底部五 tab（热点/周报/模型榜/订阅/个人）+ 外观（跟随系统/深色/浅色）
+tools/preflight.py          构建前自检：JSON / plist / 路径引用 / Python 语法
+tools/logic_tests.py        纯逻辑镜像测试：用 Python 把解析/ID/时间逻辑跑一遍
+                            （和 Swift 单测读同一份夹具，CI 里先于编译执行）
+InOut/
+  Info.plist
+  RootView.swift            @main + 底部五 tab（热点/周报/模型榜/收藏/设置）+ 外观（跟随系统/深色/浅色）
   Design/                   Theme.swift（色板）、Components.swift（徽章/头像/骨架屏…）
   Models/                   HotTopics.swift、Story.swift（字段与接口一一对应）、
                             Leaderboard.swift（五个分类 / 榜页一行 / 详情页）、
                             Report.swift（周报/月报：期次、索引条目、分栏条目）、
-                            Subscription.swift（五个板块 / 信源 / 条目）
+                            Practice.swift（练习记录/草稿/文章快照）、
+                            SavedLink.swift（外部链接收藏：地址 + 标题）
   Services/                 AIHOTAPI（ETag/退避 + 模型榜/条目 HTML + 周报月报 JSON）、HotTopicsStore（节流/离线/补全）、
                             SnapshotCache（榜单快照）、StoryCache（故事正文落盘）、
                             FavoritesStore（收藏落盘，UserDefaults）、
@@ -318,58 +275,62 @@ AIHOT/
                             DiagnosticReport（「复制运行诊断」：脱敏后只留接口主机名）
                             SSEParser（流式解析）、AIChatTool（工具调用拼接）、
                             AIChatConfig、AIChatRequestBuilder、AIChatNewsContext、
-                            AIChatSecretStore（钥匙串）、AIChatAPI（AI 对话）、
-                            AnySearchAPI（联网搜索 / 读网页）、TavilyAPI（联网搜索另一家）、
-                            SearchToolChain（五家按用户顺序回退 + 单家 runner 工厂）、
-                            SerpAPI / ExaAPI / SerperAPI（另外三家）、
+                            AIChatSecretStore（钥匙串：两条对话协议 + 元宝 SecretId/SecretKey）、
+                            AIChatAPI（AI 对话）、
+                            TencentWSASignature（TC3-HMAC-SHA256 签名，纯函数 + Python 镜像）、
+                            TencentWSAAPI / TencentWSARunner（腾讯云元宝搜索 SearchPro + 响应解析）、
+                            WebPageReader（read_url：App 内抓网页正文）、
+                            AIChatToolRouter（web_search / read_url 路由）、
                             ChatHistoryStore（对话按新闻落盘，Application Support）、
                             ChatAnswerCopy（复制回答的文本拼装：正文 + 标题 + 出处链接）、
                             MarkdownBlocks（回答的 Markdown 分块，纯函数 + Python 镜像）、
-                            SubscriptionClassifier（五个板块的关键词规则，纯函数 + 镜像 21）、
-                            SubscriptionConfigParser（逐条 salvage + 路由校验，镜像 22）、
-                            SubscriptionConfigLoader（拉电脑上的 JSON 配置）、
-                            DajialaAPI + DajialaParser（公众号，按次计费）、
-                            RSSHubAPI + RSSFeedParser（B 站 RSS 2.0）、
-                            SubscriptionDate / SubscriptionHTML / SubscriptionLogic（日期、摘要与封面、排序与门槛，纯函数）、
-                            SubscriptionSnapshotCache（Caches/subscriptions.json）、
-                            SubscriptionStore（刷新/计费闸门/合并/分组/提示）
+                            PracticeStore（练习记录与草稿落盘，Application Support）、
+                            PracticeText（模式切换/字数/显示文字，纯函数 + Python 镜像）、
+                            PracticeStats（总篇数/本周/连续天数，北京时间，纯函数 + Python 镜像）、
+                            PracticeReviewPrompt（点评提示词，纯函数 + Python 镜像）、
+                            PracticeReviewModel（点评的一次性流式请求，不带工具）、
+                            SharedLinkURL / SharedLinkInput（外部链接校验与 aihot:// 解析，
+                            纯函数 + Python 镜像；安全边界）、LinkTitleParser / LinkTitleFetcher
+                            （抓一次网页标题，失败用域名兜底）、LinkTitleWebFetcher / LinkTitleService
+                            （公众号风控页拦普通请求，用隐藏 WKWebView 取真实标题）、
+                            SavedLinkImporter（把链接收进收藏，可单测）、
+                            SaveLinkIntent（快捷指令：收藏并打开文章，App Intents）
   Features/Common/          SafariView（SFSafariViewController，可选阅读器模式 + WebLinkSheet）
   Features/Hot/             榜单页、大卡、紧凑行、RelativeTime
-  Features/Favorites/       收藏列表、收藏行（从「个人」push）
-  Features/Profile/         个人页（收藏/设置入口 + 订阅概况）
-  Features/Subscription/    订阅页（五板块分组）、条目详情、设置里的「订阅」分组
+  Features/Favorites/       收藏列表（热点 + 外部链接混排）、收藏行、添加链接表单、
+                            内嵌阅读器（WKWebView：全文 + 原样式 + 抓标题/正文）、
+                            链接详情页（AI 对话 + 练一练 + 阅读器/网页版逃生口）
   Features/Leaderboard/     模型榜列表页（五分类切换）、模型详情页（评分/价格/领域卡/逐项成绩）
   Features/Report/          周报/月报列表页（周报月报分段 + 其下的「看哪一期」选期下拉、最新一期、往期分组）、
                             期次正文渲染（带编号的分栏标题）、往期详情页、
                             条目详情页（JSON 字段 + `/items/{id}` 完整正文，取不到就退回导语版）、
                             ReportItemBodyView（正文分块渲染：标题/段落/要点/分节线）
-  Features/Story/           详情页（AI 摘要 + 报道节奏图 + 时间线 + 收藏书签 + 对话弹窗）、
+  Features/Story/           详情页（AI 摘要 + 报道节奏图 + 时间线 + 收藏书签 + 对话弹窗 + 练一练）、
+                            AIChatSubject（热点 / 导入文章共用的对话主题与资料形状）、
                             ReportTimelineChart（Swift Charts 柱状图）、
                             MarkdownBlocksView（回答的 Markdown 分块渲染）
-  Features/About/           设置页（原「关于」：外观/数据/订阅/AI 对话/缓存/收藏/对话记录/排查/署名）
-AIHOTTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解析/网页解析/报道节奏/订阅分类与解析）
-AIHOTUITests/               UI 测试（设置页换序与开关持久化；用启动参数重置搜索设置）
+  Features/Practice/        练一练（写作 + 对照 + 可选 AI 点评）、练习本列表、只读回看页
+  Features/About/           设置页（原「关于」：外观/AI 对话/数据/缓存/收藏/对话记录/排查/署名）
+InOutTests/                 夹具驱动的纯逻辑测试（解码/时间/ID解析/网页解析/报道节奏/练习统计与提示词/链接校验与标题）
+InOutUITests/               UI 测试（练习「详情页 → 保存 → 练习本」；外部链接手动添加 /
+                            自动抓标题 / 文章内 AI 对话与练一练；快捷指令的收藏并打开路径）
 ```
 
 ## 6. 改点什么
 
 | 想改 | 改哪里 |
 | --- | --- |
-| App 显示名 | `AIHOT/Info.plist` 的 `CFBundleDisplayName` |
+| App 显示名 | `InOut/Info.plist` 的 `CFBundleDisplayName` |
 | 包名（bundle id） | `project.yml` → `PRODUCT_BUNDLE_IDENTIFIER`（免费账号下只要全局唯一即可） |
 | 版本号 | `project.yml` → `MARKETING_VERSION`；build 号由 CI 用 run number 自动递增，AltStore 才能识别为更新 |
-| 配色/字号 | `AIHOT/Design/Theme.swift` |
+| 配色/字号 | `InOut/Design/Theme.swift` |
 | 对话用哪家 / 哪个模型 | App 内「设置 → AI 对话」（地址、模型、Key 都在这儿） |
 | 对话的「快 / 深」 | `AIChatRequestBuilder.effort`（默认 `low`，偏快） |
-| 原文要不要用阅读器 | `AIHOT/Features/Story/StoryDetailView.swift` 的 `WebLinkSheet(url:entersReader:)` —— `entersReader: true` 是进阅读器，「网页版」那个按钮用的是默认的 `false` |
-| 报道节奏图长什么样 | `AIHOT/Services/ReportTimeline.swift`（分桶/标签/轴刻度，改完记得同步 `tools/logic_tests.py` 的镜像 9）+ `AIHOT/Features/Story/ReportTimelineChart.swift`（柱子颜色与高度） |
-| 订阅信源清单 | 电脑上的 `subscriptions.json`（格式见第 3 节）；改完在 App 里下拉刷新或点「检查订阅配置」 |
-| 五个板块的分类词库 | `AIHOT/Services/SubscriptionClassifier.swift`（改完同步 `tools/logic_tests.py` 的镜像 21） |
-| 公众号自动刷新频率 / 每次页数 | `SubscriptionRefreshPolicy.weChatAutomaticInterval`（6 小时）/ `DajialaAPI` 里写死的 `page: 1` |
-| 局域网地址放行 | `AIHOT/Info.plist` 的 `NSAppTransportSecurity`；优先用 `电脑名.local`，不要依赖裸 IP |
-| 图标 | 换掉 `tools/make_appicon.py` 的画法，或自己放一张 1024×1024 PNG 到 `AIHOT/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` |
+| 原文要不要用阅读器 | `InOut/Features/Story/StoryDetailView.swift` 的 `WebLinkSheet(url:entersReader:)` —— `entersReader: true` 是进阅读器，「网页版」那个按钮用的是默认的 `false` |
+| 报道节奏图长什么样 | `InOut/Services/ReportTimeline.swift`（分桶/标签/轴刻度，改完记得同步 `tools/logic_tests.py` 的镜像 9）+ `InOut/Features/Story/ReportTimelineChart.swift`（柱子颜色与高度） |
+| 图标 | 换掉 `tools/make_appicon.py` 的画法，或自己放一张 1024×1024 PNG 到 `InOut/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` |
 
-> 有 Mac 的话：`brew install xcodegen && tools/local_ci.sh test`，就能本地跑完测试；`tools/local_ci.sh ipa` 直接出包。想用 Xcode 打开就 `xcodegen generate && open AIHOT.xcodeproj`。
+> 有 Mac 的话：`brew install xcodegen && python3 tools/make_appicon.py && xcodegen generate && open InOut.xcodeproj`，就能在 Xcode 里跑。
 
 ## 7. 出问题先看这里
 
@@ -379,16 +340,16 @@ AIHOTUITests/               UI 测试（设置页换序与开关持久化；用�
 | 想先自检再推 | 本地跑 `python3 tools/preflight.py`（结构自检）和 `python3 tools/logic_tests.py`（解析/时间/ID 逻辑镜像测试），都是只读的 |
 | 报找不到 `macos-15` 这个 runner | 把 `.github/workflows/ios.yml` 里两处 `runs-on: macos-15` 改成 `macos-14` |
 | 桌面图标空白 | `make_appicon.py` 那一步失败了（不影响功能），看 job 日志 |
-| AltStore 装 `unsigned` 报签名相关错误 | 先试 `AIHOT-adhoc-ipa`（可能不存在）；都没有就把报错发出来，我加一版 CI 自签证书的构建 |
+| AltStore 装 `unsigned` 报签名相关错误 | 先试 `InOut-adhoc-ipa`（可能不存在）；都没有就把报错发出来，我加一版 CI 自签证书的构建 |
 | 提示「不受信任的开发者」 | 设置 → 通用 → VPN与设备管理 → 信任证书 |
 | 打开就提示网络不可用 | 榜单页会显示离线横幅并展示缓存；检查网络后下拉重试 |
 | 下拉刷新像「没反应」 | 这是有意的：60 秒内不重复请求（接口 s-maxage 约定）。等过 60 秒再拉，或直接杀掉重开 |
 | 显示「请求过于频繁」 | 碰到接口 429，App 会在 `Retry-After` 到期前不再发请求，等提示的时间过去即可 |
 | 对话报 400，且错误里提到 fallback / anthropic-beta | 那是 `AIChatRequestBuilder.enableRefusalFallbacks` 那两行（`fallbacks` + beta 头）没被服务端接受。把它改成 `false` 即可 |
-| 对话报「密钥无效或没有权限」 | 检查「设置 → AI 对话」里协议与 Key 是否对得上（模型 Key 与搜索 Key 是分开存的七份） |
-| 对话里搜不到东西 / 报「搜索失败」 | 看错误里点名的是**哪一家** —— 全部失败时，报的一定是**排第一**那家的错 → 到「设置 → AI 对话 → 搜索工具」查那家的 Key 与开关。AnySearch：匿名有免费额度，用光了要么换个 Key 要么等，**Key 无效时它不会退回匿名**（把搜索 Key 清空即可继续用匿名）；Tavily / Exa：报「Key 无效或已停用」就换一个 Key，或把它停用让下一家顶上；SerpAPI / Serper 同理（这两家只能搜索） |
-| 对话报「没有可用的搜索工具」 | 搜索工具全被停用了，或必填的 Key 都没填（AnySearch 也停用了）。到「设置 → AI 对话 → 搜索工具」启用一家并填好 Key；AnySearch 留空 Key 即用匿名 |
-| 对话报「没有能读网页的工具」 | 能读网页的三家（AnySearch / Tavily / Exa）要么停用要么没填 Key —— SerpAPI、Serper 只支持搜索，顶不上。启用其中一家即可（AnySearch 可匿名） |
+| 对话报「密钥无效或没有权限」 | 检查「设置 → AI 对话」里协议与 Key 是否对得上（模型 Key 与元宝 SecretId/SecretKey 是分开存的四份） |
+| 对话里搜不到东西 / 报「搜索失败」 | 看错误原文：**鉴权失败** → 到「设置 → AI 对话 → 联网搜索」核对 SecretId / SecretKey，并确认账号已开通元宝搜索；**限频/配额** → 稍后再试；带 `RequestId` 的原文可直接发给腾讯云工单。错误不会被当成搜索结果喂给模型 |
+| 对话报「还没配置腾讯云元宝搜索」 | SecretId / SecretKey 只填了一个或都没填；补齐后点「保存密钥」，可用「测试搜索」先验证 |
+| 读网页失败 | 只支持公开 http(s)；公众号遇风控验证会报错，去 App 内阅读器完成验证；需要登录或只靠脚本渲染的页面读不到正文 |
 | 模型反复调同一个工具、或根本不搜 | 工具名/参数写错时它会收到 is_error 并自己重试；若一直如此，把当轮的错误信息发出来（界面会显示接口原话） |
 | 对话报「接口地址是 http」 | iOS 默认不允许明文 HTTP。改用 https，或按第 4 节给该地址单独加例外 |
 | 对话一直不出字、结束后才一次性冒出来 | 若走的是自己的中转，确认它没有压缩/缓存响应；App 侧已经显式要求 `Accept-Encoding: identity` |
@@ -403,25 +364,16 @@ AIHOTUITests/               UI 测试（设置页换序与开关持久化；用�
 | 热度指数/涨跌不显示 | 页面文本解析没命中（官网改版了）。功能不受影响；改点「设置 → 排查 → 复制热度解析诊断」，那一份带 /hot 页面原文，发出来即可修 |
 | 详情页没有「报道节奏」这一节 | 正常：带发布时间的报道少于 2 条、或全挤在同一格里就不画（一条新闻刚开始被报道时就是这样） |
 | 阅读器里正文不全 / 少了图片 | 那是系统阅读器对这家站点的抽取结果。点「打开原文」旁边的**「网页版」**，退回站点自己的页面 |
-| 订阅页说「连不上电脑上的服务」 | 确认手机与电脑在同一 Wi-Fi；第一次访问局域网要在系统弹窗里允许「本地网络」（设置 → 隐私与安全性 → 本地网络）；地址优先填 `电脑名.local`，裸 IP 在新 iOS 上可能被 ATS 拦 |
-| 订阅页说「iOS 拒绝了明文 HTTP」 | 给 RSSHub / 配置服务器加 HTTPS，或在 `AIHOT/Info.plist` 的 `NSExceptionDomains` 里补上你的域名/网段 |
-| 公众号报 Key 无效 / 余额不足 | 到「个人 → 设置 → 订阅」换 Dajiala Key 或充值；B 站内容不受影响 |
-| 订阅一直为空，配置检查也失败 | 看电脑上的静态服务器是否在跑、配置地址在浏览器里能否直接打开；`subscriptions.json` 至少保留一条启用的源 |
-| 分类感觉不对 | 分类是本地关键词规则，没命中就归到「周边」；改 `SubscriptionClassifier` 的词库并同步镜像 21 |
-| 想看 Dajiala 到底返回了什么 | 「设置 → 订阅 → 复制公众号原始响应」（会计费一次），把脱敏后的 JSON 发出来替换测试夹具 |
 
 ## 8. 许可与署名
 
 - 内容版权归 **AIHOT（北京虚实空际文化科技有限公司）及各原始来源**所有。App 内固定显示「数据来源：AIHOT」并链回官网，保留原始链接。
-- 订阅内容版权归**微信公众号原作者与哔哩哔哩 UP 主**所有；App 只显示标题/摘要并跳转原文，不存储、不分发正文。
 - AIHOT 条款允许**个人非商业**使用；本 App 仅供自己使用，**请勿公开分发 IPA、不要做公开镜像或商业用途**。
 - 本项目不含任何 AIHOT 的代码或数据文件，全部数据在运行时从公开接口获取。
-- Dajiala 接口按你自己的账号计费；B 站内容由你自己搭建的 RSSHub 读取，App 不经过任何第三方聚合服务器。
 
 ## 9. 验收清单
 
-- [ ] `tools/local_ci.sh test` 绿（单元 + UI 测试）
-- [ ] `tools/local_ci.sh ipa` 出包，`CFBundleVersion` 是本次指定的 build 号（可选：手动触发 GitHub Actions 复验）
+- [ ] Actions 绿，拿到 IPA
 - [ ] AltStore 装成功，图标出现在桌面并能打开
 - [ ] 榜单 10 条的顺序与标题和官网 `/hot` 一致
 - [ ] 点一条进详情，AI 摘要与官网 `/story/xxx` 一致，报道时间线正常
@@ -430,14 +382,7 @@ AIHOTUITests/               UI 测试（设置页换序与开关持久化；用�
 - [ ] 原文按钮在应用内打开，且**默认是阅读器模式**（纯正文）；点旁边的「网页版」能退回原网页
 - [ ] 报道多的 story 能看到「报道节奏」柱状图，断档那几小时是贴着底的空柱子，最高那根和下面那行说明的峰值对得上
 - [ ] 报道只有 0–1 条的 story，详情页**不出现**「报道节奏」这一节，页面不破版
-- [ ] 底部五个 tab 能切换，顺序是 **热点 / 周报 / 模型榜 / 订阅 / 个人**（个人仍在最后），选中色是热度橙
-- [ ] 「个人」里能进收藏与设置；设置里的搜索工具顺序/开关仍能持久化（UI 测试走的就是这条路径）
-- [ ] 设置 → 订阅填好 RSSHub 地址与配置地址后，「检查订阅配置」能显示「读到 N 个公众号 / M 个 UP 主」；「测试 RSSHub」能显示条数
-- [ ] 订阅页按 科技 / 健康 / 成长 / 职业 / 周边 分组；点条目进详情并能用系统 Safari 打开原文；页脚有版权说明
-- [ ] 公众号每个源 6 小时最多自动请求一次；手动下拉后 6 小时内再进 Tab 不再请求（诊断里能看到各源的抓取时间）
-- [ ] 「清除本地缓存」后订阅内容仍在内存里（不白屏），重启后需要联网重拉；**公众号的计费计时没有被清掉**
-- [ ] 断网重开订阅页：显示缓存 + 离线横幅；配置/RSSHub 连不上时提示里点名「本地网络」而不是只说网络不可用
-- [ ] 分类词库更新后，缓存里的旧条目会按新词库重新归类（板块不落盘）
+- [ ] 底部五个 tab 能切换，顺序是 **热点 / 周报 / 模型榜 / 收藏 / 设置**（设置仍在最后），选中色是热度橙
 - [ ] 周报 tab：周报/月报分段都能切，最新一期的标题/综述/分栏条目齐全；分栏标题带「01/02」编号且比正文醒目；老期次没有综述时整节省略、页面不破版
 - [ ] 往期按月分组显示，点进去能看那一期全文；**分段控件正下方**的下拉列出「最新一期」+ 当前栏往期各期（按月分组），选中往期后上方正文**就地换成那一期**（先出骨架屏），按钮上写的跟着变成那一期的期号
 - [ ] 切换分段（周报↔月报）后，下拉里列的全是**新切那一栏**的期次，选择重置回「最新一期」；点进往期条目取到的也是**条目自己那一栏**那一期（不是同名期号）
@@ -460,13 +405,10 @@ AIHOTUITests/               UI 测试（设置页换序与开关持久化；用�
 - [ ] 详情页右上角对话按钮能打开弹窗，问一个不需要联网的问题能流式出字
 - [ ] （走 Anthropic 时）问一个需要联网的问题，状态行出现「正在联网搜索…」
 - [ ] 问一个需要联网的问题（如「这条有后续吗」），状态行出现「正在联网搜索：…」，回答里带来源
-- [ ] 把 AnySearch Key 留空也能搜（匿名）
-- [ ] 搜索工具调顺序（↑↓）、拨开关后杀掉 App 重开：顺序与开关都还在；升级首启时旧的单选值排第一、其余全默认启用
-- [ ] 搜索工具每行「测一下」：Key 正确显示「✓ 通了」；Key 填错贴出该家的错误原话；必填 Key 为空时提示「还没填 Key —— 填好再测」且不发请求；改 Key 后旧结果自动清掉
-- [ ] 第一家 Key 填错、第二家正确：问一个需要联网的问题，第二家出结果（**回退真实发生**）；把两家都弄失败，报错点名的是**排第一**那家、后几家的原话不出现
-- [ ] 问一个需要打开网页的问题：SerpAPI / Serper 即使排在最前也不被调用（仅搜索的家自动跳过）；只剩它们时给「没有能读网页的工具…」
-- [ ] 设置行内提示各就各位：停用的显示「已停用」，必填没 Key 的显示「未填 Key，暂不参与」（橙色），AnySearch 显示「留空即用匿名」
-- [ ] 选 Tavily 但没填 Key：Tavily 被自动跳过（不发网络请求），由后面有 Key 的家接上
+- [ ] 在设置里填腾讯云 SecretId / SecretKey，点「测试搜索」显示「✓ 元宝搜索已连通」；只填一个或不填时提示未配置，且不发请求
+- [ ] 让模型读一个网页：状态行「正在读取网页」，正文由 App 抓取（不经过腾讯云）；公众号风控验证页给出明确提示
+- [ ] SecretKey 填错：搜索报「鉴权失败」并带 RequestId；错误不会被当成搜索结果喂给模型
+- [ ] 腾讯云密钥在钥匙串；签名环境不支持时设置页明确显示「已降级到应用内存储」
 - [ ] 生成中点「停止」能立刻停下，而且**不**弹错误条
 - [ ] 问一轮 → 杀掉 App → 重开，同一条新闻的对话还在；换一条新闻是另一场对话（各存各的）
 - [ ] 弹窗垃圾桶只清当前这一条；「设置 → 对话记录 → 清除对话记录」确认后全部清空；「清除本地缓存」之后对话与收藏都还在

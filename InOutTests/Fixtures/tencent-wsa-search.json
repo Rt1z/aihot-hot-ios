@@ -1,0 +1,10 @@
+{
+  "Response": {
+    "Pages": [
+      "{\"title\":\"人工智能创新加速我国产业转型升级\",\"url\":\"https://www.cac.gov.cn/2025-02/26/c_1742272852299173.htm\",\"date\":\"2025/02/26 09:37:00\",\"passage\":\"【新思想引领新征程】人工智能创新加速我国产业转型升级\",\"content\":\"【新思想引领新征程】人工智能创新加速我国产业转型升级……\",\"site\":\"中国网信网\",\"favicon\":\"https://cdn-yb.icon.qq.com/zuowei_dir/www_cac_gov_cn.ico\",\"score\":0.84889734,\"pics\":[]}",
+      "{\"title\":\"第二条结果\",\"url\":\"https://example.com/second\",\"date\":\"2025/02/25\",\"passage\":\"第二条摘要\",\"site\":\"示例站\",\"score\":0.5}"
+    ],
+    "Version": "standard",
+    "RequestId": "test-request-id"
+  }
+}

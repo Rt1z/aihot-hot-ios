@@ -16,13 +16,15 @@
 """
 
 import datetime
+import hashlib
+import hmac
+import html as html_module
+import ipaddress
 import json
 import os
 import re
 import sys
-import xml.etree.ElementTree as ET
-from email.utils import parsedate_to_datetime
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -511,93 +513,6 @@ def run_stream_bytes(data, decoder):
     return run_stream_lines(split_lines(data), decoder)
 
 
-def anysearch_result_text(payload):
-    """与 AnySearchAPI.resultText 对应（输入是已解析的 JSON-RPC 响应）。
-
-    失败有**两种**形状，只看顶层 error 会漏掉第一种：
-      - 无效 key / 工具自己失败：HTTP 200，顶层无 error，而是 result.isError == True，
-        原因在 result.content[0].text 里（实测无效 key 就是这条）；
-      - 协议级错误：顶层 error.message。
-    """
-    error = payload.get("error") or {}
-    if error.get("message"):
-        raise ValueError("搜索失败：" + error["message"])
-    result = payload.get("result") or {}
-    content = result.get("content") or []
-    text = "\n".join(
-        item.get("text") or "" for item in content if item.get("type") == "text"
-    ).strip()
-    if result.get("isError") is True:
-        if "invalid_api_key" in text:
-            raise ValueError("AnySearch 的 Key 无效或已停用。可以到「设置 → AI 对话」清空它改用匿名，或换一个 Key")
-        raise ValueError("搜索服务拒绝了这次调用" if not text else "搜索失败：" + text)
-    if not text:
-        raise ValueError("搜索没有返回可用内容")
-    return text
-
-
-def tavily_search_text(payload):
-    """与 TavilyAPI.searchText 对应（输入是已解析的 200 响应）。
-
-    results → 模型可读 Markdown：`### {序号}. {标题}\\n{URL}\\n\\n{摘要}`，
-    条目之间空行分隔；answer 非空时前置引用块。空结果抛错，绝不回空串。
-    """
-    if not isinstance(payload, dict):
-        raise ValueError("Tavily 返回了看不懂的内容")
-    results = payload.get("results") or []
-    sections = []
-    for item in results:
-        if not isinstance(item, dict):
-            raise ValueError("Tavily 返回了看不懂的内容")
-        title = (item.get("title") or "").strip()
-        url = (item.get("url") or "").strip()
-        content = (item.get("content") or "").strip()
-        if not title and not content:
-            continue  # 宁可少抽，不可抽错：空壳条目跳过
-        section = "### %d. %s" % (len(sections) + 1, title or url)
-        if title and url:
-            section += "\n" + url
-        if content:
-            section += "\n\n" + content
-        sections.append(section)
-    if not sections:
-        raise ValueError("Tavily 没有返回可用内容")
-    text = "\n\n".join(sections)
-    answer = (payload.get("answer") or "").strip()
-    if answer:
-        text = "> " + answer + "\n\n" + text
-    return text
-
-
-def tavily_extract_text(payload):
-    """与 TavilyAPI.extractText 对应。
-
-    **先查 failed_results**：HTTP 200 也可能带失败条目（Tavily 版的 isError 陷阱，
-    规则 13 的教训）——非空必抛，哪怕同时有成功结果。
-    """
-    if not isinstance(payload, dict):
-        raise ValueError("Tavily 返回了看不懂的内容")
-    failed = payload.get("failed_results") or []
-    if failed:
-        first = failed[0] if isinstance(failed[0], dict) else {}
-        reason = (first.get("error") or "").strip() or (first.get("message") or "").strip()
-        page = (first.get("url") or "").strip()
-        if not reason:
-            reason = page + " 提取失败" if page else "有页面没能提取"
-        raise ValueError("Tavily 提取失败：" + reason)
-    results = payload.get("results") or []
-    contents = []
-    for item in results:
-        if not isinstance(item, dict):
-            raise ValueError("Tavily 返回了看不懂的内容")
-        raw = (item.get("raw_content") or "").strip()
-        if raw:
-            contents.append(raw)
-    if not contents:
-        raise ValueError("Tavily 没有返回可用内容")
-    return "\n\n".join(contents)
-
-
 def normalize_base_url(raw):
     """与 AIChatConfig.normalizedBaseURL 对应：只去掉末尾斜杠，绝不自动补 /v1。"""
     text = raw.strip()
@@ -615,6 +530,9 @@ def normalize_base_url(raw):
 
 def contextual_turns(turns, news_context):
     """与 AIChatRequestBuilder.contextualTurns 对应：资料并进第一条 user 消息。"""
+    # 练习点评没有新闻资料，空串时不要凭空加一个 `\n\n---\n\n` 前缀
+    if not news_context:
+        return list(turns)
     for index, (role, text) in enumerate(turns):
         if role == "user":
             result = list(turns)
@@ -912,243 +830,6 @@ def report_timeline(story):
         "axis_labels": axis_labels([bucket["label"] for bucket in buckets]),
         "truncated": (story.get("reportCount") or 0) > len(dated),
     }
-
-
-# --------------------------------------------------------------------------
-# 镜像 14：SerpAPI / Serper / Exa 三家响应解析（与三个新 Service 对应）
-# --------------------------------------------------------------------------
-# 输入都是「已解析的 200 响应」。三家线格式各不相同，解析规则与 Swift 逐条对应；
-# 错误详情提取也在这里 —— 三家的错误信封互不相同（单字段 error / 顶层 message /
-# 信封 error 字符串），`AIChatAPI.problemMessage` 只认得 Serper 那种。
-
-
-def _search_sections(items, provider):
-    """三家共用的结果拼装：`### {序号}. {标题}\n{URL}\n\n{摘要}`。
-
-    标题就是链接时不重复印 URL（SerpAPI 真夹具第 1 条就是这样）；
-    条目字段可容缺，零条抛错，绝不回空串。
-    """
-    sections = []
-    for item in items:
-        if not isinstance(item, dict):
-            raise ValueError(provider + " 返回了看不懂的内容")
-        title = (item.get("title") or "").strip()
-        link = (item.get("link") or item.get("url") or "").strip()
-        snippet = (item.get("snippet") or item.get("text") or "").strip()
-        if not title and not link and not snippet:
-            continue  # 空壳条目跳过
-        heading = title or link
-        section = "### %d. %s" % (len(sections) + 1, heading)
-        if link and link != heading:
-            section += "\n" + link
-        if snippet:
-            section += "\n\n" + snippet
-        sections.append(section)
-    if not sections:
-        raise ValueError(provider + " 没有返回可用内容")
-    return "\n\n".join(sections)
-
-
-def serpapi_search_text(payload):
-    """与 SerpAPI.searchText 对应。
-
-    **先查顶层 error**（200 也可能带报错），再解析 organic_results；snippet 容缺。
-    """
-    if not isinstance(payload, dict):
-        raise ValueError("SerpAPI 返回了看不懂的内容")
-    error = (payload.get("error") or "").strip()
-    if error:
-        raise ValueError("SerpAPI 报错：" + error)
-    organic = payload.get("organic_results")
-    if organic is not None and not isinstance(organic, list):
-        raise ValueError("SerpAPI 返回了看不懂的内容")
-    return _search_sections(organic or [], "SerpAPI")
-
-
-def serper_search_text(payload):
-    """与 SerperAPI.searchText 对应。
-
-    防御性查顶层 error / message（200 带报错的形状没抓过，文档不可达）：
-    error 先查；零条时 message 比「没有内容」更能说明原因。
-    """
-    if not isinstance(payload, dict):
-        raise ValueError("Serper 返回了看不懂的内容")
-    error = (payload.get("error") or "").strip()
-    if error:
-        raise ValueError("Serper 报错：" + error)
-    organic = payload.get("organic")
-    if organic is not None and not isinstance(organic, list):
-        raise ValueError("Serper 返回了看不懂的内容")
-    try:
-        return _search_sections(organic or [], "Serper")
-    except ValueError as exc:
-        if "没有返回可用内容" not in str(exc):
-            raise
-        message = (payload.get("message") or "").strip()
-        if message:
-            raise ValueError("Serper 报错：" + message)
-        raise
-
-
-def exa_search_text(payload):
-    """与 ExaAPI.searchText 对应：results[] → 同款 Markdown；先查顶层 error（防御）。"""
-    if not isinstance(payload, dict):
-        raise ValueError("Exa 返回了看不懂的内容")
-    error = (payload.get("error") or "").strip()
-    if error:
-        raise ValueError("Exa 报错：" + error)
-    results = payload.get("results")
-    if results is not None and not isinstance(results, list):
-        raise ValueError("Exa 返回了看不懂的内容")
-    return _search_sections(results or [], "Exa")
-
-
-def exa_contents_text(payload):
-    """与 ExaAPI.contentsText 对应。
-
-    **先查 statuses[]**：HTTP 200 也可能有失败条目（Tavily failed_results 的
-    同款陷阱，规则 13 的教训）——非空必抛，哪怕同时有成功结果；然后拼
-    results[].text（每条 trim 后非空才收），零条抛错。
-    """
-    if not isinstance(payload, dict):
-        raise ValueError("Exa 返回了看不懂的内容")
-    statuses = payload.get("statuses")
-    if isinstance(statuses, list):
-        failed = []
-        for entry in statuses:
-            if not isinstance(entry, dict):
-                continue
-            status = (entry.get("status") or "").strip().lower()
-            if status and status != "success":
-                failed.append(entry)
-        if failed:
-            first = failed[0]
-            reason = (first.get("error") or "").strip()
-            page = (first.get("id") or "").strip()
-            status = (first.get("status") or "").strip()
-            detail = reason
-            if not detail and page:
-                detail = page + " 提取失败"
-            if not detail:
-                detail = "状态：" + status if status else "有页面没能提取"
-            raise ValueError("Exa 提取失败：" + detail)
-    results = payload.get("results")
-    if results is not None and not isinstance(results, list):
-        raise ValueError("Exa 返回了看不懂的内容")
-    contents = []
-    for item in results or []:
-        if not isinstance(item, dict):
-            continue
-        text = (item.get("text") or "").strip()
-        if text:
-            contents.append(text)
-    if not contents:
-        raise ValueError("Exa 没有返回可用内容")
-    return "\n\n".join(contents)
-
-
-def serpapi_top_error(payload):
-    """SerpAPI 错误体是**单字段** `{"error": "…"}`（problemMessage 认不出这种信封）。"""
-    if not isinstance(payload, dict):
-        return None
-    error = payload.get("error")
-    if isinstance(error, str) and error.strip():
-        return error.strip()
-    return None
-
-
-def serper_error_detail(payload):
-    """Serper 错误体是顶层 `{"message": …}` —— problemMessage 认得的形状，
-    这里镜像它的取法（信封 error.message 优先，顶层 message 其次）。"""
-    if not isinstance(payload, dict):
-        return None
-    envelope = payload.get("error")
-    if isinstance(envelope, dict):
-        message = envelope.get("message")
-        if isinstance(message, str) and message.strip():
-            return message.strip()
-    message = payload.get("message")
-    if isinstance(message, str) and message.strip():
-        return message.strip()
-    return None
-
-
-def exa_top_error(payload):
-    """Exa 错误信封 `{requestId, error, tag}` 里 error 是**字符串**（不是对象）。"""
-    if not isinstance(payload, dict):
-        return None
-    error = payload.get("error")
-    if isinstance(error, str) and error.strip():
-        return error.strip()
-    return None
-
-
-# --------------------------------------------------------------------------
-# 镜像 15：搜索工具的顺序规范化与回退选择
-# --------------------------------------------------------------------------
-# 两张能力表是与 Swift `AppSettings.SearchToolProvider` 的**镜像契约**
-# （规则 4：Swift 是权威，这里照抄；改了那边不改这边，镜像会安静地错）。
-
-SEARCH_PROVIDERS = ["anySearch", "tavily", "serpapi", "exa", "serper"]
-SEARCH_SUPPORTS_READ_URL = {
-    "anySearch": True, "tavily": True, "serpapi": False, "exa": True, "serper": False,
-}
-SEARCH_REQUIRES_KEY = {
-    "anySearch": False, "tavily": True, "serpapi": True, "exa": True, "serper": True,
-}
-
-
-def eligible_providers(order, disabled, keys, tool):
-    """与 `SearchToolChain.eligibleProviders` 对应。
-
-    停用跳过 → read_url 跳过不支持读网页的家 → 必填 Key 空白跳过；
-    AnySearch 不要求 Key（空 Key **保留**，匿名合法）。保持用户顺序。
-    """
-    needs_read_url = tool == "read_url"
-    eligible = []
-    for provider in order:
-        if provider in disabled:
-            continue
-        if needs_read_url and not SEARCH_SUPPORTS_READ_URL[provider]:
-            continue
-        if SEARCH_REQUIRES_KEY[provider]:
-            if not (keys.get(provider) or "").strip():
-                continue
-        eligible.append(provider)
-    return eligible
-
-
-def normalize_search_order(stored, legacy_single_raw):
-    """与 `AppSettings.normalizeSearchToolOrder` 对应。
-
-    stored 非 nil：丢未知、首次出现去重、缺的追加到末尾（前向兼容）；
-    stored 为 nil（从没 reorder 过）：旧单选值排第一再补齐；`[]` 自愈为规范顺序。
-    """
-    seen = set()
-    order = []
-
-    def append(provider):
-        if provider in seen:
-            return
-        seen.add(provider)
-        order.append(provider)
-
-    if stored is not None:
-        for raw in stored:
-            if raw in SEARCH_PROVIDERS:
-                append(raw)
-    elif legacy_single_raw in SEARCH_PROVIDERS:
-        append(legacy_single_raw)
-    for provider in SEARCH_PROVIDERS:
-        append(provider)
-    return order
-
-
-def normalize_disabled(stored):
-    """与 `AppSettings.normalizeSearchToolDisabled` 对应：nil = 全启用；丢未知、去重。"""
-    if stored is None:
-        return set()
-    return {raw for raw in stored if raw in SEARCH_PROVIDERS}
 
 
 # --------------------------------------------------------------------------
@@ -1660,7 +1341,7 @@ def report_entry_kind(entry):
 # 镜像 19：运行诊断的地址脱敏与 Tab 角标（DiagnosticReport / ReportUnread）
 # --------------------------------------------------------------------------
 # 与 Swift `DiagnosticReport.hostOnly` / `ReportUnread.isUnread` 对应
-# （规则 4：Swift 是权威）。地址那条是安全边界 —— SerpAPI 的 Key 在查询串里，
+# （规则 4：Swift 是权威）。地址那条是安全边界 —— 接口地址的查询串里可能有凭据，
 # 所以诊断正文只允许出现 scheme://主机[:端口]。
 
 UNPARSEABLE = "（无法解析）"
@@ -2024,675 +1705,371 @@ def item_kind_counts(blocks):
 
 
 def fixture_text(name):
-    with open(os.path.join(ROOT, "AIHOTTests", "Fixtures", name), "r", encoding="utf-8") as handle:
+    with open(os.path.join(ROOT, "InOutTests", "Fixtures", name), "r", encoding="utf-8") as handle:
         return handle.read()
 
 
 def fixture_bytes(name):
-    with open(os.path.join(ROOT, "AIHOTTests", "Fixtures", name), "rb") as handle:
+    with open(os.path.join(ROOT, "InOutTests", "Fixtures", name), "rb") as handle:
         return handle.read()
 
 
 def fixture_json(name):
-    with open(os.path.join(ROOT, "AIHOTTests", "Fixtures", name), "r", encoding="utf-8") as handle:
+    with open(os.path.join(ROOT, "InOutTests", "Fixtures", name), "r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
 # --------------------------------------------------------------------------
-# 镜像 21/22：订阅（分类器 / 配置清洗 / RSS / Dajiala / 稳定 id / 刷新门槛）
-#
-# Swift 是权威实现；这里的词库、字段别名与排序键必须与
-# AIHOT/Services/SubscriptionClassifier.swift 等文件逐条一致。
+# 镜像 23：练习本的纯逻辑（PracticeText / PracticeStats / PracticeReviewPrompt /
+# ReportItemBody.plainText）
 # --------------------------------------------------------------------------
+# 与 Swift 同名函数对应（规则 4：Swift 是权威）。没有夹具：这里全是
+# 「同一份输入永远得到同一份输出」的文字规则，断言值直接写在用例里。
 
-SUB_TOPICS = ["tech", "health", "growth", "career", "peripheral"]
-
-SUB_LEXICON = [
-    ("ai", "tech"), ("人工智能", "tech"), ("大模型", "tech"), ("大语言模型", "tech"),
-    ("模型", "tech"), ("算法", "tech"), ("芯片", "tech"), ("半导体", "tech"),
-    ("算力", "tech"), ("开源", "tech"), ("编程", "tech"), ("程序员", "tech"),
-    ("代码", "tech"), ("软件", "tech"), ("硬件", "tech"), ("手机", "tech"),
-    ("电脑", "tech"), ("苹果", "tech"), ("华为", "tech"), ("小米", "tech"),
-    ("机器人", "tech"), ("自动驾驶", "tech"), ("互联网", "tech"), ("数据", "tech"),
-    ("网络安全", "tech"), ("量子", "tech"), ("卫星", "tech"), ("火箭", "tech"),
-    ("新能源", "tech"), ("电池", "tech"), ("光伏", "tech"), ("储能", "tech"),
-    ("openai", "tech"), ("chatgpt", "tech"), ("claude", "tech"), ("deepseek", "tech"),
-    ("gpu", "tech"), ("云计算", "tech"),
-
-    ("健康", "health"), ("医疗", "health"), ("医院", "health"), ("医生", "health"),
-    ("疾病", "health"), ("癌症", "health"), ("疫苗", "health"), ("药物", "health"),
-    ("睡眠", "health"), ("饮食", "health"), ("营养", "health"), ("减肥", "health"),
-    ("运动", "health"), ("健身", "health"), ("心理", "health"), ("焦虑", "health"),
-    ("抑郁", "health"), ("血糖", "health"), ("血压", "health"), ("心脏", "health"),
-    ("养生", "health"), ("体检", "health"), ("免疫力", "health"), ("肠道", "health"),
-    ("衰老", "health"),
-
-    ("读书", "growth"), ("阅读", "growth"), ("学习", "growth"), ("认知", "growth"),
-    ("思维", "growth"), ("思考", "growth"), ("成长", "growth"), ("习惯", "growth"),
-    ("自律", "growth"), ("复盘", "growth"), ("效率", "growth"), ("方法论", "growth"),
-    ("知识", "growth"), ("教育", "growth"), ("笔记", "growth"), ("写作", "growth"),
-    ("专注", "growth"), ("时间管理", "growth"), ("情绪", "growth"), ("自我提升", "growth"),
-    ("终身学习", "growth"),
-
-    ("职场", "career"), ("面试", "career"), ("简历", "career"), ("招聘", "career"),
-    ("晋升", "career"), ("跳槽", "career"), ("管理", "career"), ("领导力", "career"),
-    ("团队", "career"), ("沟通", "career"), ("汇报", "career"), ("绩效", "career"),
-    ("副业", "career"), ("创业", "career"), ("裁员", "career"), ("薪资", "career"),
-    ("薪酬", "career"), ("职业", "career"), ("求职", "career"), ("同事", "career"),
-    ("老板", "career"),
-
-    ("数码", "peripheral"), ("耳机", "peripheral"), ("相机", "peripheral"),
-    ("键盘", "peripheral"), ("显示器", "peripheral"), ("鼠标", "peripheral"),
-    ("音箱", "peripheral"), ("智能家居", "peripheral"), ("汽车", "peripheral"),
-    ("咖啡", "peripheral"), ("旅行", "peripheral"), ("美食", "peripheral"),
-    ("摄影", "peripheral"), ("游戏", "peripheral"), ("电影", "peripheral"),
-    ("音乐", "peripheral"), ("穿搭", "peripheral"), ("好物", "peripheral"),
-    ("测评", "peripheral"), ("桌搭", "peripheral"), ("露营", "peripheral"),
-    ("骑行", "peripheral"),
-]
+PRACTICE_MAX_ARTICLE = 8000
 
 
-def sub_normalize(raw):
-    out = []
-    last_space = False
-    for ch in raw:
-        code = ord(ch)
-        if 0xFF01 <= code <= 0xFF5E:
-            ch = chr(code - 0xFEE0)
-        elif code == 0x3000:
-            ch = " "
-        if ch in (" ", "\t", "\n", "\r"):
-            if not last_space:
-                out.append(" ")
-                last_space = True
-            continue
-        last_space = False
-        code = ord(ch)
-        if 0x41 <= code <= 0x5A:
-            ch = chr(code + 0x20)
-        out.append(ch)
-    return "".join(out).strip(" ")
-
-
-def sub_is_ascii_word(keyword):
-    has_letter_or_digit = False
-    for ch in keyword:
-        code = ord(ch)
-        letter = (0x41 <= code <= 0x5A) or (0x61 <= code <= 0x7A)
-        digit = 0x30 <= code <= 0x39
-        if letter or digit:
-            has_letter_or_digit = True
-            continue
-        if code in (0x20, 0x2D, 0x2E, 0x2B, 0x5F):
-            continue
-        return False
-    return has_letter_or_digit
-
-
-def sub_is_ascii_alnum(ch):
-    code = ord(ch)
-    return (0x30 <= code <= 0x39) or (0x41 <= code <= 0x5A) or (0x61 <= code <= 0x7A)
-
-
-def sub_contains(keyword, haystack):
-    if not keyword or not haystack:
-        return False
-    if not sub_is_ascii_word(keyword):
-        return keyword in haystack
-    start = 0
-    while True:
-        index = haystack.find(keyword, start)
-        if index < 0:
-            return False
-        before_ok = index == 0 or not sub_is_ascii_alnum(haystack[index - 1])
-        end = index + len(keyword)
-        after_ok = end == len(haystack) or not sub_is_ascii_alnum(haystack[end])
-        if before_ok and after_ok:
-            return True
-        start = end
-
-
-def sub_scores(title, summary):
-    normalized_title = sub_normalize(title)
-    normalized_summary = sub_normalize(summary)
-    scores = {topic: 0 for topic in SUB_TOPICS}
-    for keyword, topic in SUB_LEXICON:
-        normalized = sub_normalize(keyword)
-        if not normalized:
-            continue
-        score = 0
-        if sub_contains(normalized, normalized_title):
-            score += 3
-        if sub_contains(normalized, normalized_summary):
-            score += 1
-        if score:
-            scores[topic] += score
-    return scores
-
-
-def sub_classify(title, summary):
-    scores = sub_scores(title, summary)
-    best = "peripheral"
-    best_score = 0
-    for topic in SUB_TOPICS:
-        score = scores.get(topic, 0)
-        if score > best_score:
-            best = topic
-            best_score = score
-    return "peripheral" if best_score == 0 else best
-
-
-def sub_string(value):
-    return value if isinstance(value, str) else None
-
-
-def sub_int(value):
-    if isinstance(value, bool):
+def practice_clean(text):
+    if text is None:
         return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            return None
-    return None
+    trimmed = text.strip()
+    return trimmed or None
 
 
-def sub_is_http_url(raw):
-    try:
-        parts = urlsplit(raw)
-    except ValueError:
-        return False
-    return parts.scheme.lower() in ("http", "https") and bool(parts.hostname)
+def practice_word_count(text):
+    return sum(1 for char in text if not char.isspace())
 
 
-def sub_extract_biz(raw):
-    try:
-        parts = urlsplit(raw)
-    except ValueError:
-        return None
-    if parts.scheme.lower() not in ("http", "https"):
-        return None
-    host = (parts.hostname or "").lower()
-    if host != "mp.weixin.qq.com" and not host.endswith(".mp.weixin.qq.com"):
-        return None
-    # 不用 parse_qs：它会把 `+` 当成空格，而 URLComponents 不会。
-    for part in parts.query.split("&"):
-        if not part:
-            continue
-        key, _, value = part.partition("=")
-        if unquote(key) == "__biz":
-            value = unquote(value).strip()
-            if value:
-                return value
-    return None
+def practice_normalized_points(points):
+    return [cleaned for cleaned in (practice_clean(p) for p in points) if cleaned][:3]
 
 
-def sub_normalize_route(raw):
-    route = raw.strip()
-    if not route or not route.startswith("/bilibili/"):
-        return None
-    if "://" in route or route.startswith("//") or ".." in route or "#" in route:
-        return None
-    if "?" in route and not route.split("?", 1)[0].startswith("/bilibili/"):
-        return None
-    while len(route) > 1 and route.endswith("/"):
-        route = route[:-1]
-    return route
+def practice_joined_structured(main_idea, points, takeaway):
+    parts = []
+    if practice_clean(main_idea):
+        parts.append(practice_clean(main_idea))
+    items = practice_normalized_points(points)
+    if items:
+        parts.append("\n".join("· %s" % item for item in items))
+    if practice_clean(takeaway):
+        parts.append(practice_clean(takeaway))
+    return "\n\n".join(parts)
 
 
-def sub_valid_uid(uid):
-    if not uid:
-        return False
-    for ch in uid:
-        code = ord(ch)
-        letter = (0x41 <= code <= 0x5A) or (0x61 <= code <= 0x7A)
-        digit = 0x30 <= code <= 0x39
-        if letter or digit or code in (0x5F, 0x2D):
-            continue
-        return False
-    return True
-
-
-def sub_parse_config(text):
-    root = json.loads(text)
-    if not isinstance(root, dict):
-        raise ValueError("not a JSON object")
-    warnings = []
-    version = sub_int(root.get("version"))
-    if version is None:
-        version = sub_int(root.get("schemaVersion"))
-    if version is None:
-        version = 1
-    if version > 1:
-        warnings.append("配置版本是 %d，比 App 认识的新" % version)
-
-    seen = set()
-    wechat = []
-    bilibili = []
-
-    raw_wechat = root.get("wechat")
-    if isinstance(raw_wechat, list):
-        for index, entry in enumerate(raw_wechat):
-            if not isinstance(entry, dict):
-                warnings.append("wechat 第 %d 条不是对象" % (index + 1))
-                continue
-            name = (sub_string(entry.get("name")) or "").strip()
-            raw_url = (sub_string(entry.get("url")) or "").strip()
-            biz = (sub_string(entry.get("biz")) or "").strip() or None
-            if raw_url:
-                if sub_is_http_url(raw_url):
-                    url = raw_url
-                elif biz:
-                    url = None
-                else:
-                    warnings.append("wechat 第 %d 条 url 不是 http(s)" % (index + 1))
-                    continue
-            else:
-                url = None
-            if not url and not biz:
-                warnings.append("wechat 第 %d 条缺 biz/url" % (index + 1))
-                continue
-            resolved_biz = biz or sub_extract_biz(url or "")
-            identity = resolved_biz or url or ""
-            if not identity:
-                warnings.append("wechat 第 %d 条取不出 id" % (index + 1))
-                continue
-            source_id = "wechat:" + identity
-            if source_id in seen:
-                warnings.append("wechat 第 %d 条重复" % (index + 1))
-                continue
-            seen.add(source_id)
-            wechat.append({
-                "id": source_id,
-                "name": name,
-                "url": url,
-                "biz": resolved_biz,
-                "enabled": entry.get("enabled") is not False,
-            })
-    elif raw_wechat is not None:
-        warnings.append("wechat 不是数组")
-
-    raw_bilibili = root.get("bilibili")
-    if isinstance(raw_bilibili, list):
-        for index, entry in enumerate(raw_bilibili):
-            if not isinstance(entry, dict):
-                warnings.append("bilibili 第 %d 条不是对象" % (index + 1))
-                continue
-            name = (sub_string(entry.get("name")) or "").strip()
-            route = (sub_string(entry.get("route")) or "").strip()
-            uid = (sub_string(entry.get("uid")) or "").strip()
-            if route:
-                route = sub_normalize_route(route)
-                if not route:
-                    warnings.append("bilibili 第 %d 条 route 不合法" % (index + 1))
-                    continue
-            elif uid:
-                if not sub_valid_uid(uid):
-                    warnings.append("bilibili 第 %d 条 uid 非法" % (index + 1))
-                    continue
-                route = "/bilibili/user/video/" + uid
-            else:
-                warnings.append("bilibili 第 %d 条缺 route/uid" % (index + 1))
-                continue
-            source_id = "bilibili:" + route
-            if source_id in seen:
-                warnings.append("bilibili 第 %d 条重复" % (index + 1))
-                continue
-            seen.add(source_id)
-            bilibili.append({
-                "id": source_id,
-                "name": name,
-                "route": route,
-                "enabled": entry.get("enabled") is not False,
-            })
-    elif raw_bilibili is not None:
-        warnings.append("bilibili 不是数组")
-
-    total = len(wechat) + len(bilibili)
-    if total > 50:
-        warnings.append("信源超过 50 条")
-        wechat = wechat[:50]
-        bilibili = bilibili[:max(0, 50 - len(wechat))]
-
-    return wechat, bilibili, warnings
-
-
-def sub_collapse(text):
-    return " ".join(part for part in text.split() if part)
-
-
-def sub_summary(html, limit=2000):
-    return sub_collapse(plain_text(html))[:limit]
-
-
-def sub_clean_title(raw):
-    return sub_collapse(decode_entities(raw))
-
-
-SUB_COVER_PATTERN = re.compile(
-    r"""<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))""",
-    re.IGNORECASE,
-)
-
-
-def sub_normalize_cover(raw, base):
-    value = raw.strip()
-    if not value:
-        return None
-    if value.startswith("//"):
-        return "https:" + value
-    parts = urlsplit(value)
-    if parts.scheme.lower() in ("http", "https") and parts.hostname:
-        return value
-    if base:
-        joined = urljoin(base, value)
-        parts = urlsplit(joined)
-        if parts.scheme.lower() in ("http", "https") and parts.hostname:
-            return joined
-    return None
-
-
-def sub_cover(html, base):
-    match = SUB_COVER_PATTERN.search(html)
-    if not match:
-        return None
-    value = match.group(1) or match.group(2) or match.group(3)
-    return sub_normalize_cover(value, base)
-
-
-def sub_parse_rss_date(raw):
-    text = (raw or "").strip()
-    if not text:
-        return None
-    try:
-        value = parsedate_to_datetime(text)
-        if value is not None:
-            return value
-    except (TypeError, ValueError):
-        pass
-    try:
-        return datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def sub_parse_wechat_date(raw):
-    text = (raw or "").strip()
-    if not text:
-        return None
-    # 只有带时区的真 ISO8601 才走这条；`2026-10-20 09:30:00` 是公众号格式，
-    # 必须落到下面的北京时间分支（否则会得到 naive datetime，和 Swift 分叉）。
-    if "T" in text:
-        try:
-            value = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
-            if value.tzinfo is not None:
-                return value
-        except ValueError:
-            pass
-    if text.isdigit():
-        value = int(text)
-        if len(text) >= 13:
-            return datetime.datetime.fromtimestamp(value / 1000, tz=BEIJING)
-        if len(text) >= 9:
-            return datetime.datetime.fromtimestamp(value, tz=BEIJING)
-        return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M", "%Y-%m-%d",
-                "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d"):
-        try:
-            return datetime.datetime.strptime(text, fmt).replace(tzinfo=BEIJING)
-        except ValueError:
-            pass
-    return None
-
-
-def sub_fnv1a64_hex(text):
-    value = 0xCBF29CE484222325
-    for byte in text.encode("utf-8"):
-        value ^= byte
-        value = (value * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
-    return "%016x" % value
-
-
-def sub_item_id(kind, source_id, raw_id, link, title, published):
-    raw_id = (raw_id or "").strip()
-    if raw_id:
-        return kind + ":" + raw_id
-    timestamp = str(int(published.timestamp() * 1000)) if published is not None else ""
-    seed = "|".join([kind, source_id, title, timestamp, link])
-    return kind + ":hash:" + sub_fnv1a64_hex(seed)
-
-
-def sub_parse_dajiala(text, source_id, source_name):
-    try:
-        root = json.loads(text)
-    except ValueError:
-        return [], "decoding", "Dajiala 返回的不是 JSON"
-    if isinstance(root, list):
-        rows = root
-        top = None
-    elif isinstance(root, dict):
-        top = root
-        code = sub_int(root.get("code", root.get("status", 0))) or 0
-        message = (sub_string(root.get("msg")) or sub_string(root.get("message"))
-                   or sub_string(root.get("error")) or "")
-        if code == -1:
-            return [], "rateLimited", "请求太快"
-        if code == 10002:
-            return [], "badKey", "Dajiala Key 无效"
-        if code == 20001:
-            return [], "insufficientBalance", "余额不足"
-        if code == 20003:
-            return [], "invalidConfig", "链接里有未编码的 &"
-        if code not in (0, 200):
-            return [], "server", "Dajiala 返回 %s" % code
-        rows = None
-        data = root.get("data")
-        if isinstance(data, list):
-            rows = data
-        elif isinstance(data, dict):
-            for key in ("list", "articles", "posts", "items", "rows"):
-                if isinstance(data.get(key), list):
-                    rows = data[key]
-                    break
-        if rows is None:
-            for key in ("list", "articles", "posts", "items", "rows"):
-                if isinstance(root.get(key), list):
-                    rows = root[key]
-                    break
-    else:
-        return [], "decoding", "JSON 既不是对象也不是数组"
-
-    if rows is None:
-        keys = ", ".join(sorted(top.keys())) if top else "数组"
-        return [], "decoding", "认不出格式（顶层字段：%s）" % keys
-
-    seen = set()
-    items = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        title = sub_clean_title(sub_string(row.get("title")) or sub_string(row.get("name")) or "")
-        link = (sub_string(row.get("url")) or sub_string(row.get("link"))
-                or sub_string(row.get("content_url")) or "").strip()
-        if not title or not link:
-            continue
-        summary_raw = (sub_string(row.get("digest")) or sub_string(row.get("summary"))
-                       or sub_string(row.get("desc")) or sub_string(row.get("description")) or "")
-        summary = sub_summary(summary_raw) if "<" in summary_raw else sub_collapse(
-            decode_entities(summary_raw)
-        )[:2000]
-        time_raw = (sub_string(row.get("public_time")) or sub_string(row.get("publish_time"))
-                    or sub_string(row.get("publishTime")) or sub_string(row.get("post_time"))
-                    or sub_string(row.get("update_time")) or sub_string(row.get("create_time")) or "")
-        published = sub_parse_wechat_date(time_raw)
-        author = (sub_string(row.get("wx_name")) or sub_string(row.get("author"))
-                  or sub_string(row.get("nickname")) or "")
-        display_name = source_name or author or "公众号"
-        raw_id = (sub_string(row.get("hashid")) or sub_string(row.get("appmsgid"))
-                  or sub_string(row.get("id")) or sub_string(row.get("aid"))
-                  or sub_string(row.get("sn")))
-        item_id = sub_item_id("wechat", source_id, raw_id, link, title, published)
-        if item_id in seen:
-            continue
-        seen.add(item_id)
-        cover_raw = (sub_string(row.get("cover")) or sub_string(row.get("cover_url"))
-                     or sub_string(row.get("image")) or sub_string(row.get("img")))
-        cover = sub_normalize_cover(cover_raw, link) if cover_raw else None
-        items.append({
-            "id": item_id,
-            "source_id": source_id,
-            "source_name": display_name,
-            "kind": "wechat",
-            "title": title,
-            "summary": summary,
-            "link": link,
-            "cover": cover,
-            "published": published,
-        })
-
-    if rows and not items:
-        return [], "decoding", "返回了 %d 条，但都没有标题或链接" % len(rows)
-    return items, None, None
-
-
-def _sub_local(tag):
-    return tag.rsplit("}", 1)[-1]
-
-
-def sub_parse_rss(text, source_id, source_name):
-    raw = text.lstrip("﻿").strip()
-    lower = raw.lower()
-    if not raw:
-        raise ValueError("empty")
-    if lower.startswith(("<!doctype html", "<html", "{", "[")):
-        raise ValueError("not rss")
-    without_declaration = re.sub(r"^<\?xml[^>]*\?>", "", lower).strip()
-    if without_declaration.startswith("<feed"):
-        raise ValueError("atom")
-    if not (lower.startswith("<?xml") or lower.startswith("<rss")):
-        raise ValueError("not rss")
-    root = ET.fromstring(raw)
-    channel = root.find("channel")
-    if channel is None:
-        raise ValueError("no channel")
-    channel_title = ""
-    for child in channel:
-        if _sub_local(child.tag) == "title":
-            channel_title = (child.text or "").strip()
-            break
-
-    display_name = source_name or channel_title or "B 站"
-    seen = set()
-    items = []
-    for item in channel.findall("item"):
-        buffer = {
-            "title": "", "link": "", "description": "", "content": "",
-            "pubDate": "", "guid": "", "author": "", "cover": None,
-        }
-        for child in item:
-            local = _sub_local(child.tag).lower()
-            if local == "title":
-                buffer["title"] = child.text or ""
-            elif local == "link":
-                buffer["link"] = child.text or ""
-            elif local == "description":
-                buffer["description"] = child.text or ""
-            elif local == "encoded":
-                buffer["content"] = child.text or ""
-            elif local == "pubdate":
-                buffer["pubDate"] = child.text or ""
-            elif local == "guid":
-                buffer["guid"] = child.text or ""
-            elif local in ("author", "creator") and not buffer["author"]:
-                buffer["author"] = child.text or ""
-            elif local in ("thumbnail", "content") and child.attrib.get("url"):
-                buffer["cover"] = child.attrib["url"]
-            elif local == "enclosure":
-                if (child.attrib.get("type") or "").lower().startswith("image/"):
-                    buffer["cover"] = child.attrib.get("url")
-
-        title = sub_clean_title(buffer["title"])
-        if not title:
-            continue
-        link = buffer["link"].strip()
-        description = buffer["description"] or buffer["content"]
-        published = sub_parse_rss_date(buffer["pubDate"])
-        item_id = sub_item_id(
-            "bilibili", source_id,
-            buffer["guid"] or link, link, title, published
+def practice_transfer(mode, main_idea, points, takeaway, free_text, target):
+    if target == mode:
+        return (mode, main_idea, points, takeaway, free_text)
+    if target == "structured":
+        has_structured = (
+            practice_clean(main_idea) is not None
+            or practice_normalized_points(points)
+            or practice_clean(takeaway) is not None
         )
-        if item_id in seen:
-            continue
-        seen.add(item_id)
-        cover = sub_normalize_cover(buffer["cover"], link) if buffer["cover"] else None
-        cover = cover or sub_cover(description, link)
-        items.append({
-            "id": item_id,
-            "source_id": source_id,
-            "source_name": display_name,
-            "kind": "bilibili",
-            "title": title,
-            "summary": sub_summary(description),
-            "link": link,
-            "cover": cover,
-            "published": published,
-        })
-    return {"source_name": display_name, "items": items}
+        if not has_structured and practice_clean(free_text):
+            main_idea = practice_clean(free_text)
+    else:
+        if practice_clean(free_text) is None:
+            free_text = practice_joined_structured(main_idea, points, takeaway)
+    return (target, main_idea, points, takeaway, free_text)
 
 
-def sub_merge(existing, incoming, source_id):
-    return [item for item in existing if item["source_id"] != source_id] + incoming
+def practice_stats(entries, now):
+    week_start = (now - datetime.timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    week_end = week_start + datetime.timedelta(days=7)
+    this_week = sum(1 for entry in entries if week_start <= entry < week_end)
+
+    days = {entry.date() for entry in entries}
+    today = now.date()
+    if today in days:
+        cursor = today
+    elif today - datetime.timedelta(days=1) in days:
+        cursor = today - datetime.timedelta(days=1)
+    else:
+        return (len(entries), this_week, 0)
+
+    streak = 0
+    while cursor in days:
+        streak += 1
+        cursor -= datetime.timedelta(days=1)
+    return (len(entries), this_week, streak)
 
 
-def sub_normalize_items(items, valid_source_ids=None, limit=600):
-    if valid_source_ids is not None:
-        items = [item for item in items if item["source_id"] in valid_source_ids]
+def practice_prompt(article, article_text, mode, main_idea, points, takeaway, free_text):
+    full_text = practice_clean(article_text)
+    basis = "导读" if full_text is None else "全文"
+    material = full_text or practice_clean(article.get("digest")) or "（没有可用的文章材料）"
+    if len(material) > PRACTICE_MAX_ARTICLE:
+        material = material[:PRACTICE_MAX_ARTICLE] + "\n\n（材料过长，后文已省略）"
 
-    def sort_key(item):
-        published = item.get("published")
-        if published is None:
-            return (1, 0.0, item["title"].encode("utf-8"), item["id"])
-        return (0, -published.timestamp(), item["title"].encode("utf-8"), item["id"])
+    if mode == "free":
+        summary = practice_clean(free_text) or "（还没有写）"
+    else:
+        parts = []
+        if practice_clean(main_idea):
+            parts.append("主旨：%s" % practice_clean(main_idea))
+        items = practice_normalized_points(points)
+        if items:
+            parts.append("要点：\n" + "\n".join("- %s" % item for item in items))
+        if practice_clean(takeaway):
+            parts.append("我的判断：%s" % practice_clean(takeaway))
+        summary = "\n\n".join(parts) or "（还没有写）"
 
-    ordered = sorted(items, key=sort_key)
-    seen = set()
-    result = []
-    for item in ordered:
-        if item["id"] in seen:
-            continue
-        seen.add(item["id"])
-        result.append(item)
-        if len(result) >= limit:
-            break
-    return result
+    user = "\n".join([
+        "文章标题：%s" % article.get("title", ""),
+        "来源：%s" % (practice_clean(article.get("sourceName")) or "（未注明）"),
+        "材料类型：%s" % basis,
+        "",
+        "文章材料：",
+        material,
+        "",
+        "---",
+        "",
+        "我的归纳总结：",
+        summary,
+    ])
+    return {"basis": basis, "user": user}
 
 
-def sub_sections(items):
-    buckets = {}
-    for item in items:
-        topic = sub_classify(item["title"], item.get("summary", ""))
-        buckets.setdefault(topic, []).append(item)
-    return [(topic, buckets[topic]) for topic in SUB_TOPICS if buckets.get(topic)]
+def report_item_plain_text(blocks):
+    parts = []
+    for block in blocks:
+        kind = block[0]
+        if kind == "heading":
+            _, level, text = block
+            marks = "#" * max(1, min(level, 6))
+            cleaned = re.sub(r"\s+", " ", text).strip()
+            if cleaned:
+                parts.append("%s %s" % (marks, cleaned))
+        elif kind == "paragraph":
+            text = re.sub(r"\s+", " ", "".join(run[0] for run in block[1])).strip()
+            if text:
+                parts.append(text)
+        elif kind == "bullets":
+            rows = []
+            for item in block[1]:
+                text = re.sub(r"\s+", " ", "".join(run[0] for run in item)).strip()
+                if text:
+                    rows.append("- %s" % text)
+            if rows:
+                parts.append("\n".join(rows))
+        # divider：视觉分隔，丢掉
+    return "\n\n".join(parts)
 
 
-def sub_is_due(last, now, floor):
-    if last is None:
+# --------------------------------------------------------------------------
+# 镜像 24：外部链接收藏（SharedLinkURL / SharedLinkInput / LinkTitleParser /
+# FavoritesStore 的升级兼容）
+# --------------------------------------------------------------------------
+# 与 Swift 同名函数对应（规则 4：Swift 是权威）。链接校验是**安全边界**
+# （拒绝 localhost / 私有网段），标题解析读合成夹具 link-title.html。
+
+LINK_MAX_LENGTH = 2048
+LINK_MAX_TITLE = 200
+
+
+def link_is_wechat(host):
+    value = (host or "").lower()
+    return value in ("mp.weixin.qq.com", "weixin.qq.com") or value.endswith(".weixin.qq.com")
+
+
+def link_host_public(host):
+    value = (host or "").lower().strip("[]")
+    if not value:
+        return False
+    if value == "localhost" or value.endswith(".local") or value.endswith(".localhost"):
+        return False
+    octets = value.split(".")
+    if len(octets) == 4 and all(part.isdigit() for part in octets):
+        first, second, third = (int(part) for part in octets[:3])
+        # Swift 显式拒绝、但 Python 的 is_private 在不同版本里覆盖不一致的段
+        if first == 100 and 64 <= second <= 127:      # 100.64.0.0/10 CGNAT
+            return False
+        if first == 198 and second in (18, 19):       # 198.18.0.0/15 基准测试
+            return False
+        if first == 192 and second == 0 and third == 0:  # 192.0.0.0/24
+            return False
+    try:
+        ip = ipaddress.ip_address(value)
+        return not (
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+        )
+    except ValueError:
+        pass
+    return "." in value
+
+
+def link_normalized(raw):
+    if raw is None:
+        return None
+    trimmed = raw.strip()
+    if not trimmed or len(trimmed) > LINK_MAX_LENGTH:
+        return None
+    parts = urlsplit(trimmed)
+    scheme = (parts.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        return None
+    if parts.username is not None or parts.password is not None:
+        return None
+    host = parts.hostname
+    if not host or not link_host_public(host):
+        return None
+    host_display = "[%s]" % host if ":" in host else host
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    if port:
+        host_display = "%s:%d" % (host_display, port)
+    return urlunsplit((scheme, host_display, parts.path, parts.query, ""))
+
+
+def link_first_url(text):
+    match = re.search(r"https?://[^\s<>\"'）】」』？！，。；、]+", text or "", re.IGNORECASE)
+    if match is None:
+        return None
+    return link_normalized(match.group(0).rstrip(".,;:!?)]}>\"'"))
+
+
+def link_default_title(url):
+    host = (urlsplit(url).hostname or "").lower()
+    if not host:
+        return "链接"
+    return "微信公众号文章" if link_is_wechat(host) else host
+
+
+def link_clean_title(raw):
+    if raw is None:
+        return None
+    collapsed = re.sub(r"\s+", " ", raw).strip()
+    if not collapsed:
+        return None
+    return collapsed[:LINK_MAX_TITLE]
+
+
+def link_parse_incoming(incoming):
+    parts = urlsplit(incoming)
+    if (parts.scheme or "").lower() != "aihot" or (parts.hostname or "").lower() != "add":
+        return None
+    query = parse_qs(parts.query)
+    raw_url = (query.get("url") or [None])[0]
+    url = link_normalized(raw_url) if raw_url else None
+    if url is None:
+        return None
+    title = (query.get("title") or [None])[0]
+    return {"url": url, "title": link_clean_title(title)}
+
+
+LINK_GENERIC_TITLES = {
+    "微信公众平台",
+    "请在微信客户端打开",
+    "请在微信客户端打开链接",
+    "环境异常",
+    "微信公众平台 - 请在微信客户端打开",
+}
+
+
+def link_is_generic_title(title):
+    value = (title or "").strip()
+    if not value:
         return True
-    return (now - last).total_seconds() >= floor
+    if value in LINK_GENERIC_TITLES:
+        return True
+    return "验证" in value and len(value) <= 12
 
 
-def sub_next_dajiala_delay(last, now):
-    if last is None:
-        return 0.0
-    return max(0.0, 0.5 - (now - last).total_seconds())
+def link_parse_title(html_text):
+    og_patterns = [
+        r"<meta[^>]*\bproperty\s*=\s*[\"']og:title[\"'][^>]*\bcontent\s*=\s*[\"']([^\"']*)[\"']",
+        r"<meta[^>]*\bcontent\s*=\s*[\"']([^\"']*)[\"'][^>]*\bproperty\s*=\s*[\"']og:title[\"']",
+    ]
+    for pattern in og_patterns:
+        match = re.search(pattern, html_text or "", re.IGNORECASE | re.DOTALL)
+        if match:
+            cleaned = link_clean_title(html_module.unescape(match.group(1)))
+            if cleaned:
+                return cleaned
+
+    document_title = None
+    match = re.search(r"(?is)<title[^>]*>(.*?)</title>", html_text or "")
+    if match:
+        document_title = link_clean_title(html_module.unescape(match.group(1)))
+    if document_title and not link_is_generic_title(document_title):
+        return document_title
+
+    match = re.search(
+        r"(?:var\s+)?msg_title\s*=\s*[\"']([^\"']+)[\"']",
+        html_text or "",
+        re.IGNORECASE,
+    )
+    if match:
+        title = link_clean_title(html_module.unescape(match.group(1)))
+        if title:
+            return title
+    return document_title
 
 
-def sub_dt(seconds):
-    return datetime.datetime.fromtimestamp(seconds, tz=datetime.timezone.utc)
+def favorite_kind(obj):
+    kind = obj.get("kind")
+    if kind in ("topic", "link"):
+        return kind
+    return "topic" if obj.get("topic") is not None else "link"
+
+
+# --------------------------------------------------------------------------
+# 镜像 25：腾讯云元宝搜索（TC3-HMAC-SHA256 签名 / 响应）
+# --------------------------------------------------------------------------
+# 与 `TencentWSASignature` / `TencentWSAResponseParser` 对应。签名用官方文档
+# 示例的中间哈希（35e9… / 7019…）与固定测试密钥的参考签名钉住；响应夹具
+# tencent-wsa-search.json 按官方 API 文档示例改写（不是个人抓取）。
+
+TC3_ALGORITHM = "TC3-HMAC-SHA256"
+
+
+def tc3_sha256_hex(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def tc3_hmac(key, message):
+    return hmac.new(key, message, hashlib.sha256).digest()
+
+
+def tc3_canonical_request(method, uri, query, canonical_headers, signed_headers, payload_hash):
+    return "\n".join([
+        method,
+        uri,
+        query,
+        canonical_headers + "\n" + signed_headers,
+        payload_hash,
+    ])
+
+
+def tc3_string_to_sign(timestamp, credential_scope, canonical_request):
+    return "\n".join([
+        TC3_ALGORITHM,
+        str(timestamp),
+        credential_scope,
+        tc3_sha256_hex(canonical_request),
+    ])
+
+
+def tc3_signature(secret_key, date, service, string_to_sign):
+    secret_date = tc3_hmac(b"TC3" + secret_key.encode("utf-8"), date.encode("utf-8"))
+    secret_service = tc3_hmac(secret_date, service.encode("utf-8"))
+    secret_signing = tc3_hmac(secret_service, b"tc3_request")
+    return hmac.new(secret_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def tencent_pages(payload):
+    pages = []
+    for raw in (payload.get("Response") or {}).get("Pages") or []:
+        try:
+            pages.append(json.loads(raw))
+        except Exception:
+            continue
+    return pages
 
 
 def run():
@@ -2949,47 +2326,6 @@ def run():
              "没有 user 轮时不乱并")
 
     print("")
-    print("== 镜像 8：AnySearch 响应解析 ==")
-    anysearch = fixture_json("anysearch-search.json")
-    text = anysearch_result_text(anysearch)
-    check(text.startswith("## Search Results"), "取到的是排好的 Markdown，可直接给模型")
-    check("https://karpathy.bearblog.dev/year-in-review-2025/" in text,
-          "结果里带 URL（模型据此再调 read_url）")
-    check_eq(anysearch_result_text({"result": {"content": [{"type": "text", "text": "  x  "}]}}),
-             "x", "去掉首尾空白")
-
-    def raises(func, label, needle=""):
-        try:
-            func()
-        except ValueError as exc:
-            check(needle in str(exc), label)
-            return
-        check(False, label + "（应当抛错但没有）")
-
-    raises(lambda: anysearch_result_text({"error": {"message": "Invalid key"}}),
-           "JSON-RPC error 要抛错并带原话", "Invalid key")
-    raises(lambda: anysearch_result_text({"result": {"content": []}}),
-           "空结果要抛错，而不是回一个空串")
-
-    # 无效 key 的真实形状：HTTP 200 + result.isError，顶层没有 error。
-    # 曾经漏查 isError，于是这段错误文案被当成搜索结果喂给了模型。
-    bad_key = fixture_json("anysearch-error.json")
-    check_eq((bad_key.get("result") or {}).get("isError"), True,
-             "夹具钉住的无效 key 响应：HTTP 200，靠 result.isError 表示失败")
-    check("error" not in bad_key, "这个形状里顶层没有 error —— 只查 error 的写法会漏掉它")
-    raises(lambda: anysearch_result_text(bad_key),
-           "无效 key 要抛错，不能把错误文案当搜索结果", "Key 无效")
-    raises(lambda: anysearch_result_text(
-        {"result": {"content": [{"type": "text", "text": "boom"}], "isError": True}}),
-        "其它 isError 也要抛错并带原话", "boom")
-    raises(lambda: anysearch_result_text(
-        {"result": {"content": [], "isError": True}}),
-        "isError 而且没给原因时也要抛错", "拒绝了")
-    check_eq(anysearch_result_text(
-        {"result": {"content": [{"type": "text", "text": "ok"}], "isError": False}}),
-        "ok", "isError 明确为 false 时照常返回")
-
-    print("")
     print("== 镜像 9：报道节奏（分桶 / 峰值 / 轴刻度）==")
     timeline_story = fixture_json("story-timeline.json")["story"]
     timeline = report_timeline(timeline_story)
@@ -3141,48 +2477,6 @@ def run():
              "有正文、只是收尾标记没来 → 保留原话")
 
     print("")
-    print("== 镜像 12：Tavily 响应解析 ==")
-    # 两份夹具都是真抓的 200 响应；断言从抓到的字节推导（查询词、条数、trim 后长度）。
-    tavily_search = fixture_json("tavily-search.json")
-    check_eq(tavily_search.get("query"), "Karpathy 认知鸿沟", "夹具里的查询词")
-    check_eq(len(tavily_search.get("results") or []), 5, "抓到 5 条结果")
-    search_text = tavily_search_text(tavily_search)
-    check(search_text.startswith("### 1. Karpathy 主帖"), "第 1 条标题进 Markdown")
-    check("https://www.cnblogs.com/gyc567/p/19848269" in search_text, "条目里带 URL")
-    check("### 5. 75%人口未接触LLM" in search_text, "抓到的最后一条")
-    check(not search_text.startswith(">"), "answer 是 null，不该出现引用块")
-
-    # answer 非空时前置引用块（夹具里是 null，合成体钉格式）
-    check(tavily_search_text(
-        {"answer": "一句话结论", "results": [{"title": "T", "url": "https://e.com", "content": "C"}]}
-    ).startswith("> 一句话结论"), "answer 非空 → 引用块前置")
-
-    tavily_extract = fixture_json("tavily-extract.json")
-    check_eq(tavily_extract.get("failed_results"), [], "夹具里没有失败条目")
-    check_eq(len(tavily_extract.get("results") or []), 1, "extract 抓的是单个页面")
-    extract_text = tavily_extract_text(tavily_extract)
-    check(extract_text.startswith("[# karpathy](/)"), "raw_content 本身是 Markdown，原样交给模型")
-    # 夹具里 raw_content 是 11418 字、末尾带 3 个空白（…Strap in.\n\n ），
-    # strip 之后 11415 —— 与 Swift 测试里的 count 断言同一个数。
-    check_eq(len(extract_text), 11415, "trim 之后的长度（11418 会红，尾部有 3 个空白）")
-
-    # 非空 failed_results 必须抛（HTTP 200 也可能部分失败 —— Tavily 版的 isError 陷阱）
-    raises(lambda: tavily_extract_text(
-        {"results": [{"url": "https://ok.com", "raw_content": "正文"}],
-         "failed_results": [{"url": "https://bad.com", "error": "fetch failed"}]}),
-        "failed_results 非空要抛错并带原话（连同成功结果一起也抛）", "fetch failed")
-    raises(lambda: tavily_extract_text(
-        {"results": [], "failed_results": [{"url": "https://bad.com"}]}),
-        "认不出原因也要点名页面", "bad.com")
-
-    raises(lambda: tavily_search_text({"query": "x", "results": [], "answer": None}),
-           "零结果要抛错，而不是回空串", "没有返回可用内容")
-    raises(lambda: tavily_extract_text({"results": [], "failed_results": []}),
-           "extract 零结果同样抛错")
-    raises(lambda: tavily_search_text("not json"), "非对象（解码失败）要抛错")
-    raises(lambda: tavily_extract_text("not json"), "extract 同样")
-
-    print("")
     print("== 镜像 13：对话会话封顶（ChatHistoryStore.trim）==")
     # 55 条合成数据 → 恰好留 50，淘汰最旧的 5 条。
     # 方向钉死：误淘汰最新会**静默丢掉用户刚问完的对话**，而且没人会报错。
@@ -3195,155 +2489,6 @@ def run():
     check_eq(trim_sessions(synth[:50]), synth[:50],
              "恰好 50 条时原样返回，不重排")
     check(trim_sessions([]) == [], "空的照样是空的")
-
-    print("")
-    print("== 镜像 14：SerpAPI / Serper / Exa 响应解析 ==")
-    # 四份成功夹具 + 三份错误夹具都是真抓的字节；断言全部从字节推导。
-    # `raises` 是镜像 8 处定义的闭包（ValueError + 可选原话），这里继续用。
-
-    serpapi_search = fixture_json("serpapi-search.json")
-    sp_organic = serpapi_search.get("organic_results") or []
-    check_eq(len(sp_organic), 9, "SerpAPI 夹具抓到 9 条 organic_results")
-    check_eq(sum(1 for item in sp_organic if item.get("snippet")), 7,
-             "其中 7 条有 snippet（2 条容缺）")
-    sp_text = serpapi_search_text(serpapi_search)
-    check(sp_text.startswith("### 1. https://news.qq.com/rain/a/20251209A04T2S00"),
-          "第 1 条 title==link，直接当标题")
-    check_eq(sp_text.count("https://news.qq.com/rain/a/20251209A04T2S00"), 1,
-             "title 就是链接时只出现一次（不标题一行再加链接一行）")
-    check("### 3. Karpathy：80 亿人被AI 认知鸿沟分成四个层级" in sp_text, "第 3 条标题")
-    check("No information is available for this page." in sp_text, "第 2 条抓到的 snippet 原文")
-    check_eq(sp_text.count("### "), 9, "9 条一条不能丢（含 2 条没 snippet 的）")
-    # 200 带顶层 error 的分支没有免费触发的办法（合成）
-    raises(lambda: serpapi_search_text(
-        {"error": "Your account has run out of searches.", "organic_results": []}),
-        "200 带顶层 error 要抛错并带原话", "run out of searches")
-    raises(lambda: serpapi_search_text({"organic_results": []}),
-           "零结果要抛错，而不是回空串", "没有返回可用内容")
-    raises(lambda: serpapi_search_text("not json"), "非对象要抛错")
-
-    serper_search = fixture_json("serper-search.json")
-    sr_organic = serper_search.get("organic") or []
-    check_eq(len(sr_organic), 10, "Serper 夹具抓到 10 条 organic")
-    check_eq(sum(1 for item in sr_organic if item.get("snippet")), 10, "10 条全有 snippet")
-    sr_text = serper_search_text(serper_search)
-    check(sr_text.startswith("### 1. Berryxia.AI on X"), "第 1 条标题")
-    check("认知鸿沟一次性说透" in sr_text, "第 1 条抓到的 snippet 原文")
-    check("### 10. Karpathy：LLM 能力认知鸿沟正扩大为漏斗" in sr_text, "最后一条（第 10 条）")
-    check_eq(sr_text.count("### "), 10, "10 条一条不能丢")
-    check("6 months ago" not in sr_text,
-          "`date` 字段（真值 '6 months ago'）不解析、不进输出")
-    # 防御分支（200 带报错的形状没抓过，合成）
-    raises(lambda: serper_search_text(
-        {"error": "quota exceeded", "organic": []}),
-        "200 带顶层 error 要抛错并带原话", "quota exceeded")
-    raises(lambda: serper_search_text(
-        {"organic": [], "message": "insufficient credits"}),
-        "零条时 message 比「没有内容」更能说明原因", "insufficient credits")
-    raises(lambda: serper_search_text({"organic": []}),
-           "零结果要抛错", "没有返回可用内容")
-    raises(lambda: serper_search_text("not json"), "非对象要抛错")
-
-    exa_search = fixture_json("exa-search.json")
-    ex_results = exa_search.get("results") or []
-    check_eq(len(ex_results), 5, "Exa 搜索夹具抓到 5 条 results")
-    check_eq([len(item.get("text") or "") for item in ex_results], [500] * 5,
-             "maxCharacters: 500 实测生效：每条 text 恰 500 字")
-    ex_text = exa_search_text(exa_search)
-    check(ex_text.startswith("### 1. Karpathy 主帖：从我的时间线来看"), "第 1 条标题")
-    check("https://www.cnblogs.com/gyc567/p/19848269" in ex_text, "条目里带 URL")
-    check("第一部分" in ex_text, "第 1 条抓到的 text 原文")
-    check("### 5. Karpathy：对 LLM 能力的共识" in ex_text, "最后一条（第 5 条）")
-    check_eq(ex_text.count("### "), 5, "5 条一条不能丢")
-    raises(lambda: exa_search_text(
-        {"error": "billing issue", "results": [{"title": "T"}]}),
-        "200 带顶层 error 要抛错（合成）", "billing issue")
-    raises(lambda: exa_search_text({"results": []}),
-           "零结果要抛错", "没有返回可用内容")
-    raises(lambda: exa_search_text("not json"), "非对象要抛错")
-
-    exa_contents = fixture_json("exa-contents.json")
-    check_eq(len(exa_contents.get("results") or []), 1, "读网页夹具是单个页面")
-    check_eq(exa_contents.get("statuses"),
-             [{"id": "https://karpathy.bearblog.dev/year-in-review-2025/",
-               "status": "success", "source": "cached"}],
-             "statuses 全 success（id 就是 URL）—— 不该触发提取失败")
-    ct_text = exa_contents_text(exa_contents)
-    check(ct_text.startswith("2025 LLM Year in Review – karpathy"),
-          "正文原样返回，不套标题块")
-    check(ct_text.endswith("Strap in."), "抓到的正文结尾")
-    check_eq(len(ct_text), 10689,
-             "请求了 8000、实测回了 10689 —— 从字节推导（clamp 在 Swift 侧兜底）")
-    # statuses 失败分支没有免费触发的办法（合成）—— Tavily failed_results 的同款陷阱
-    raises(lambda: exa_contents_text(
-        {"results": [{"url": "https://ok.com", "text": "正文"}],
-         "statuses": [{"id": "https://bad.com", "status": "failure"}]}),
-        "HTTP 200 有失败 statuses 要抛错并点名页面", "bad.com")
-    raises(lambda: exa_contents_text(
-        {"results": [{"url": "https://ok.com", "text": "正文"}],
-         "statuses": [{"id": "https://bad.com", "status": "failure", "error": "fetch failed"}]}),
-        "有原话优先用原话", "fetch failed")
-    raises(lambda: exa_contents_text({"results": [], "statuses": []}),
-           "没正文要抛错", "没有返回可用内容")
-    raises(lambda: exa_contents_text("not json"), "非对象要抛错")
-
-    # 三份错误夹具的形状与详情提取（文案本身由 Swift 测试钉；镜像只钉形状与提取）
-    sp_error = fixture_json("serpapi-error.json")
-    check_eq(sorted(sp_error.keys()), ["error"], "SerpAPI 错误体是单字段 error")
-    check((serpapi_top_error(sp_error) or "").startswith("Invalid API key."),
-          "单字段原话提取得到完整一句")
-    check("api_key=" not in (serpapi_top_error(sp_error) or ""),
-          "原话本身不含查询串片段 —— 带出原话不等于带出 Key")
-    sr_error = fixture_json("serper-error.json")
-    check_eq(sr_error, {"message": "Unauthorized.", "statusCode": 403},
-             "Serper 错误体：文档不可达，形状全靠错 Key 探针抓的这 44 字节")
-    check_eq(serper_error_detail(sr_error), "Unauthorized.",
-             "顶层 message 提取（problemMessage 认得的形状）")
-    ex_error = fixture_json("exa-error.json")
-    check_eq(sorted(ex_error.keys()), ["error", "requestId", "tag"],
-             "Exa 错误信封三件套")
-    check((exa_top_error(ex_error) or "").startswith("Invalid API key."),
-          "信封里 error 是字符串，直接提取")
-    check_eq(ex_error.get("tag"), "INVALID_API_KEY",
-             "tag 是诊断信息，不参与状态码分支")
-    check_eq(serper_error_detail({"error": {"message": "嵌套信封"}}), "嵌套信封",
-             "problemMessage 式的信封优先（合成）")
-
-    print("")
-    print("== 镜像 15：搜索工具的顺序规范化与回退选择 ==")
-    # 规范化（与 AppSettings 的两个纯函数对应）
-    check_eq(normalize_search_order(None, "tavily"),
-             ["tavily", "anySearch", "serpapi", "exa", "serper"],
-             "升级首启：旧单选值排第一，其余按声明顺序补齐")
-    check_eq(normalize_search_order(None, None), SEARCH_PROVIDERS, "没旧值就是规范顺序")
-    check_eq(normalize_search_order(None, "bogus"), SEARCH_PROVIDERS,
-             "旧值非法（将来枚举变了）也退回规范顺序")
-    check_eq(normalize_search_order(["serper", "anySearch", "bogus", "serper"], "tavily"),
-             ["serper", "anySearch", "tavily", "serpapi", "exa"],
-             "丢未知、首次出现去重、缺的追加到末尾；legacy 只在 stored 为 nil 时才看")
-    check_eq(normalize_search_order([], "tavily"), SEARCH_PROVIDERS,
-             "空数组自愈为规范顺序，不读旧键")
-    check_eq(normalize_disabled(None), set(), "没动过开关 = 全启用")
-    check_eq(normalize_disabled(["serpapi", "bogus", "serpapi"]), {"serpapi"},
-             "丢未知、去重")
-
-    # 回退选择（与 SearchToolChain.eligibleProviders 对应）
-    full_keys = {"tavily": "k", "serpapi": "k", "exa": "k", "serper": "k"}
-    check_eq(eligible_providers(SEARCH_PROVIDERS, set(), full_keys, "web_search"),
-             SEARCH_PROVIDERS, "全启用、Key 都填了：五家全上、保持用户顺序")
-    check_eq(eligible_providers(SEARCH_PROVIDERS, set(), full_keys, "read_url"),
-             ["anySearch", "tavily", "exa"],
-             "read_url 自动跳过只搜索的两家（能力矩阵 ✗）")
-    check_eq(eligible_providers(SEARCH_PROVIDERS, {"serper"}, full_keys, "web_search"),
-             ["anySearch", "tavily", "serpapi", "exa"], "停用的跳过")
-    check_eq(eligible_providers(["serpapi", "anySearch"], set(), {"serpapi": "   "}, "web_search"),
-             ["anySearch"], "必填 Key 是空白 = 没填 = 不参与")
-    check_eq(eligible_providers(["anySearch"], set(), {}, "web_search"),
-             ["anySearch"], "AnySearch 空 Key 保留（匿名合法，不能被必填过滤误杀）")
-    check_eq(eligible_providers(SEARCH_PROVIDERS, set(SEARCH_PROVIDERS), full_keys, "web_search"),
-             [], "全停用 → 一个可试的家都没有（走「没有可用的搜索工具」）")
-    check_eq(eligible_providers(["serpapi", "serper"], set(), full_keys, "read_url"),
-             [], "只剩只搜索的家时 read_url 无解（走「没有能读网页的工具」）")
 
     print("")
     print("== 镜像 16：回答的 Markdown 分块（MarkdownBlocks.parse）==")
@@ -3395,7 +2540,7 @@ def run():
 
     print("")
     print("== 镜像 17：模型榜页面解析（LeaderboardParser）==")
-    # 断言全部从三份夹具字节推导（与 AIHOTTests/LeaderboardParserTests.swift 一致）。
+    # 断言全部从三份夹具字节推导（与 InOutTests/LeaderboardParserTests.swift 一致）。
     board = lb_parse_board(fixture_text("leaderboard-overall.html"), "overall")
     check(board is not None, "综合榜解析成功")
     if board:
@@ -3516,7 +2661,7 @@ def run():
 
     print("")
     print("== 镜像 18：周报/月报的期号、区间与往期分组（ReportPeriod）==")
-    # 断言全部从四份夹具字节推导（与 AIHOTTests/ReportDecodingTests.swift、
+    # 断言全部从四份夹具字节推导（与 InOutTests/ReportDecodingTests.swift、
     # ReportPeriodTests.swift 一致）。解码假设（可选性、小数秒）一并钉在这里：
     # Python 读同一份 JSON，null → None 与 Swift 的 nil 对齐。
 
@@ -3652,8 +2797,8 @@ def run():
     print("== 镜像 19：运行诊断的地址脱敏与 Tab 角标（DiagnosticReport / ReportUnread）==")
     check_eq(diagnostic_host_only("https://api.anthropic.com/v1/messages?api_key=SECRET#x"),
              "https://api.anthropic.com", "路径/查询/片段全部丢掉")
-    check_eq(diagnostic_host_only("https://serpapi.com/search?engine=google&q=ping"),
-             "https://serpapi.com", "SerpAPI 的 Key 在查询串里")
+    check_eq(diagnostic_host_only("https://relay.example.com/v1/chat?api_key=SECRET"),
+             "https://relay.example.com", "查询串里的凭据被丢掉")
     check_eq(diagnostic_host_only("https://user:pass@relay.example.com:8443/v1"),
              "https://relay.example.com:8443", "凭据丢掉、端口保留")
     check_eq(diagnostic_host_only("HTTP://Example.com/x"), "http://Example.com",
@@ -3903,217 +3048,163 @@ def run():
                 check(got_id is not None and "/" not in got_id,
                       "%s 里的条目链接能取出 id" % item_fix)
 
-    print("")
-    print("== 镜像 21：订阅分类器 ==")
-    lexicon_seen = set()
-    for keyword, _ in SUB_LEXICON:
-        check(keyword != "" and keyword == keyword.strip(),
-              "订阅词库关键词非空且无两端空白：%r" % keyword)
-        check(keyword not in lexicon_seen, "订阅词库关键词不重复：%r" % keyword)
-        lexicon_seen.add(keyword)
-    for case in fixture_json("subscription-classify.json"):
-        check_eq(
-            sub_classify(case["title"], case["summary"]),
-            case["expected"],
-            "分类「%s」" % case["title"],
-        )
-    check_eq(sub_classify("芯片", "睡眠 营养 饮食"), "tech", "分类平分按 allCases 顺序")
-    check_eq(sub_classify("again and again", ""), "peripheral", "分类 ASCII 词边界")
-    check_eq(sub_classify("ＡＩ 手机", ""), "tech", "分类全角折叠")
+    print("== 镜像 23：练习本（文字规则 / 统计 / 提示词 / 正文纯文本）==")
+    check_eq(practice_word_count("a b\n中 文"), 4, "字数只数非空白字符")
+    check_eq(practice_word_count("   "), 0, "纯空白 = 0")
+    check_eq(practice_normalized_points(["  一  ", "", "二", "三", "四"]),
+             ["一", "二", "三"], "要点去空、trim、封顶 3")
 
-    print("")
-    print("== 镜像 22：订阅配置 / RSS / Dajiala / 稳定 id / 刷新门槛 ==")
-    wechat_sources, bilibili_sources, config_warnings = sub_parse_config(
-        fixture_text("subscription-config.json")
-    )
-    check_eq(len(wechat_sources), 3, "配置：公众号坏条目/重复/非对象都要跳过")
-    check_eq(len(bilibili_sources), 3, "配置：B 站坏路由/越界/重复都要跳过")
-    check_eq(
-        {source["id"] for source in wechat_sources + bilibili_sources},
-        {
-            "wechat:MzkxMjUwNzA4NQ==",
-            "wechat:MzkxOther==",
-            "wechat:https://mp.weixin.qq.com/s/ghi",
-            "bilibili:/bilibili/user/video/946974",
-            "bilibili:/bilibili/user/video/123456?limit=10",
-            "bilibili:/bilibili/user/video/999",
-        },
-        "配置：稳定 id",
-    )
-    check(
-        not [s for s in wechat_sources if s["id"] == "wechat:MzkxOther=="][0]["enabled"],
-        "配置：字面量 false 才停用",
-    )
-    check(any("配置版本" in warning for warning in config_warnings), "配置：版本警告")
-    check(any("route 不合法" in warning for warning in config_warnings), "配置：坏路由警告")
-    check_eq(
-        sub_extract_biz(
-            "https://mp.weixin.qq.com/s/x?__biz=MzkxMjUwNzA4NQ%3D%3D&mid=1"
-        ),
-        "MzkxMjUwNzA4NQ==",
-        "配置：__biz 百分号解码",
-    )
-    check_eq(
-        sub_extract_biz("https://example.com/s?__biz=abc"),
-        None,
-        "配置：__biz 只认 mp.weixin.qq.com",
-    )
-    check_eq(
-        sub_normalize_route("/bilibili/user/video/1?limit=10"),
-        "/bilibili/user/video/1?limit=10",
-        "配置：允许查询串",
-    )
-    check_eq(
-        sub_normalize_route("https://evil.example.com/bilibili/user/video/1"),
-        None,
-        "配置：拒绝完整 URL",
-    )
-    check_eq(
-        sub_normalize_route("/bilibili/../../etc/passwd"),
-        None,
-        "配置：拒绝越界",
-    )
-    cap_entries = [{"name": "UP %d" % i, "uid": str(i)} for i in range(60)]
-    _, capped_bilibili, cap_warnings = sub_parse_config(
-        json.dumps({"bilibili": cap_entries})
-    )
-    check_eq(len(capped_bilibili), 50, "配置：信源封顶 50")
-    check(any("超过" in warning for warning in cap_warnings), "配置：封顶警告")
-    _, malformed_bilibili, malformed_warnings = sub_parse_config(
-        json.dumps({"wechat": "oops", "bilibili": [{"name": "UP", "uid": "1"}]})
-    )
-    check_eq(len(malformed_bilibili), 1, "配置：一个栏目写坏不拖垮另一个")
-    check(
-        any("wechat 不是数组" in warning for warning in malformed_warnings),
-        "配置：栏目类型错误有警告",
-    )
+    # 模式切换：只在目标为空时搬运，两边都写过时互不覆盖
+    mode, idea, _pts, _take, _free = practice_transfer(
+        "free", "", ["", "", ""], "", "一句话说完", "structured")
+    check_eq((mode, idea), ("structured", "一句话说完"),
+             "自由写 → 三段式：整段进主旨")
+    _mode, _idea, _pts, _take, free = practice_transfer(
+        "structured", "主旨", ["要点一", "", "要点二"], "判断", "", "free")
+    check("主旨" in free and "· 要点一" in free and "判断" in free,
+          "三段式 → 自由写：各部分都拼进去")
+    _mode, idea, _pts, _take, _free = practice_transfer(
+        "free", "早就写好的主旨", ["", "", ""], "", "自由写的", "structured")
+    check_eq(idea, "早就写好的主旨", "两边都写过时不被覆盖")
 
-    rss = sub_parse_rss(
-        fixture_text("rsshub-bilibili-video.xml"),
-        "bilibili:/bilibili/user/video/946974",
-        "",
-    )
-    check_eq(rss["source_name"], "影视飓风", "RSS：channel title")
-    check_eq(len(rss["items"]), 3, "RSS：三条 item")
-    first = rss["items"][0]
-    check_eq(first["title"], "我们花了一百万，拍了一支短片", "RSS：CDATA 标题")
-    check_eq(first["summary"], "这支短片的幕后故事。", "RSS：描述去 HTML")
-    check_eq(first["cover"], "https://i0.hdslb.com/bfs/archive/cover1.jpg", "RSS：// 封面补 https")
-    check_eq(first["published"].isoformat(), "2026-10-20T10:00:00+00:00", "RSS：GMT 日期")
-    second = rss["items"][1]
-    check_eq(second["title"], "AI 与影像 & 未来", "RSS：实体解码")
-    check_eq(second["cover"], "https://i0.hdslb.com/bfs/archive/cover2.jpg", "RSS：media:thumbnail")
-    check_eq(second["published"].isoformat(), "2026-10-21T18:30:00+08:00", "RSS：+0800 日期")
-    third = rss["items"][2]
-    check(third["published"] is None, "RSS：非法日期为 None")
-    check_eq(third["summary"], "", "RSS：空描述")
-    check(third["cover"] is None, "RSS：无封面")
+    # 统计：2026-11-16 是周一（北京时间）
+    def practice_when(text):
+        return datetime.datetime.fromisoformat(text).replace(tzinfo=BEIJING)
 
-    dajiala_items, dajiala_error, _ = sub_parse_dajiala(
-        fixture_text("dajiala-post-history.json"), "wechat:test", ""
-    )
-    check_eq(dajiala_error, None, "Dajiala：成功夹具")
-    check_eq(len(dajiala_items), 2, "Dajiala：缺链接的条目跳过")
-    check_eq(dajiala_items[0]["title"], "AI 产品经理的下一步", "Dajiala：标题")
-    check_eq(dajiala_items[0]["source_name"], "某产品号", "Dajiala：wx_name 回填")
-    check_eq(
-        dajiala_items[0]["published"].isoformat(),
-        "2026-10-20T09:30:00+08:00",
-        "Dajiala：北京时间",
-    )
-    check_eq(dajiala_items[1]["summary"], "睡眠不足会影响免疫力。", "Dajiala：HTML 摘要")
-    for fixture_name, expected_kind in [
-        ("dajiala-error-qps.json", "rateLimited"),
-        ("dajiala-error-10002.json", "badKey"),
-        ("dajiala-error-balance.json", "insufficientBalance"),
-        ("dajiala-unknown-shape.json", "decoding"),
-    ]:
-        _, kind, _ = sub_parse_dajiala(fixture_text(fixture_name), "wechat:test", "")
-        check_eq(kind, expected_kind, "Dajiala 错误：%s" % fixture_name)
-    _, _, unknown_message = sub_parse_dajiala(
-        fixture_text("dajiala-unknown-shape.json"), "wechat:test", ""
-    )
-    check("payload" in unknown_message, "Dajiala 未知结构要带顶层字段名")
-
-    check_eq(sub_fnv1a64_hex("hello"), "a430d84680aabd0b", "FNV-1a：hello")
-    check_eq(sub_fnv1a64_hex(""), "cbf29ce484222325", "FNV-1a：空串")
-    check_eq(
-        sub_item_id("wechat", "wechat:x", "hash-1", "https://mp.weixin.qq.com/s/x", "t", None),
-        "wechat:hash-1",
-        "条目 id：接口给的稳定 id 优先",
-    )
-    fallback_id = sub_item_id(
-        "bilibili", "bilibili:a", None, "https://b23.tv/1", "标题", sub_dt(1000)
-    )
-    check(fallback_id.startswith("bilibili:hash:"), "条目 id：没有稳定 id 时走哈希")
-    check_eq(len(fallback_id), len("bilibili:hash:") + 16, "条目 id：16 位十六进制")
-
-    def sub_dated(item_id, title, seconds):
-        return {
-            "id": item_id,
-            "source_id": "s1",
-            "title": title,
-            "summary": "",
-            "published": sub_dt(seconds),
-        }
-
-    logic_items = [
-        sub_dated("old", "z", 1),
-        sub_dated("newest", "y", 3),
-        sub_dated("tie-b", "b", 2),
-        sub_dated("tie-a", "a", 2),
-        {"id": "undated", "source_id": "s1", "title": "a", "summary": "", "published": None},
+    practice_now = practice_when("2026-11-16T10:00:00")
+    practice_entries = [
+        practice_when("2026-11-16T09:00:00"),
+        practice_when("2026-11-15T09:00:00"),
+        practice_when("2026-11-14T09:00:00"),
+        practice_when("2026-11-10T09:00:00"),
     ]
-    check_eq(
-        [item["id"] for item in sub_normalize_items(logic_items)],
-        ["newest", "tie-a", "tie-b", "old", "undated"],
-        "排序：时间倒序、无时间最后、同时间按标题 UTF-8",
-    )
-    check_eq(
-        [item["id"] for item in sub_normalize_items(logic_items, limit=2)],
-        ["newest", "tie-a"],
-        "截断",
-    )
-    check_eq(
-        [item["id"] for item in sub_normalize_items(logic_items, valid_source_ids={"s1"})],
-        ["newest", "tie-a", "tie-b", "old", "undated"],
-        "剪枝：保留启用源",
-    )
-    check_eq(
-        [item["id"] for item in sub_normalize_items(logic_items, valid_source_ids={"other"})],
-        [],
-        "剪枝：丢掉未启用源",
-    )
-    existing = [
-        sub_dated("a1", "a", 1),
-        {"id": "b1", "source_id": "b", "title": "b", "summary": "", "published": None},
-    ]
-    merged = sub_merge(existing, [sub_dated("a2", "a", 2)], "s1")
-    check_eq({item["id"] for item in merged}, {"a2", "b1"}, "合并只替换指定源")
+    check_eq(practice_stats(practice_entries, practice_now), (4, 1, 3),
+             "总数 / 本周（周一起）/ 连续 3 天")
+    check_eq(practice_stats([practice_when("2026-11-15T09:00:00")], practice_now),
+             (1, 0, 1), "今天还没写不算断签")
+    check_eq(practice_stats([practice_when("2026-11-13T09:00:00")], practice_now),
+             (1, 0, 0), "昨天也没写 = 断签")
+    check_eq(practice_stats([], practice_now), (0, 0, 0), "空练习本")
 
-    grouping_items = [
-        {"id": "tech", "source_id": "s", "title": "AI 芯片", "summary": "", "published": None},
-        {"id": "health", "source_id": "s", "title": "睡眠与营养", "summary": "", "published": None},
-    ]
-    sections = sub_sections(grouping_items)
-    check_eq([topic for topic, _ in sections], ["tech", "health"], "分组顺序固定，空板块不出现")
+    # 提示词：没有全文就明说「导读」
+    built = practice_prompt(
+        {"title": "一篇关于推理成本的文章", "sourceName": "示例来源", "digest": "导读正文"},
+        None, "structured", "推理变便宜了", ["价格下降", "", ""], "", "")
+    check_eq(built["basis"], "导读", "没有全文 → 基准是导读")
+    check("材料类型：导读" in built["user"], "材料类型写进 user 消息")
+    check("主旨：推理变便宜了" in built["user"], "三段式总结进 user 消息")
 
-    now = sub_dt(1000)
-    check(sub_is_due(None, now, 21600), "6h：从没抓过 -> true")
-    check(sub_is_due(now - datetime.timedelta(seconds=21600), now, 21600), "6h：正好到期 -> true")
-    check(not sub_is_due(now - datetime.timedelta(seconds=21599), now, 21600), "6h：差一秒 -> false")
-    check(sub_is_due(now - datetime.timedelta(seconds=61), now, 60), "手动 60s 地板：61s -> true")
-    check(not sub_is_due(now - datetime.timedelta(seconds=59), now, 60), "手动 60s 地板：59s -> false")
-    check_eq(sub_next_dajiala_delay(None, now), 0.0, "Dajiala 间隔：第一次")
-    check(
-        abs(sub_next_dajiala_delay(now - datetime.timedelta(seconds=0.2), now) - 0.3) < 0.0001,
-        "Dajiala 间隔：0.3s",
+    # 全文截断：8k 之后的内容不该出现
+    long_text = "甲" * (PRACTICE_MAX_ARTICLE + 100) + "尾部标记"
+    built = practice_prompt(
+        {"title": "t", "sourceName": None, "digest": "导读"},
+        long_text, "free", "", ["", "", ""], "", "我的总结")
+    check_eq(built["basis"], "全文", "有全文 → 基准是全文")
+    check("（材料过长，后文已省略）" in built["user"], "截断要明说")
+    check("尾部标记" not in built["user"], "截断之后的内容不出现")
+
+    # 正文块 → 纯文本（标题/段落/列表/分节线）
+    check_eq(report_item_plain_text([
+        ("heading", 2, "标题"),
+        ("paragraph", [("第一段", None, False)]),
+        ("bullets", [[("点一", None, False)], [("点二", None, False)]]),
+        ("divider",),
+    ]), "## 标题\n\n第一段\n\n- 点一\n- 点二", "正文块保留结构标记")
+
+    print("== 镜像 24：外部链接（校验 / URL Scheme / 标题 / 收藏兼容）==")
+    check_eq(link_normalized("  HTTPS://MP.Weixin.QQ.COM/s/abc?x=1#part  "),
+             "https://mp.weixin.qq.com/s/abc?x=1", "规范化：scheme/host 小写、剥 fragment")
+    for bad in ("javascript:alert(1)", "file:///etc/passwd", "ftp://example.com/a",
+                "http://localhost/a", "http://foo.local/a", "http://127.0.0.1/a",
+                "http://10.0.0.1/a", "http://192.168.1.1/a", "http://172.20.0.1/a",
+                "http://169.254.1.1/a", "http://100.64.0.1/a", "http://[::1]/a",
+                "http://[fe80::1]/a", "http://intranet/a",
+                "https://user:pass@example.com/a", "   "):
+        check(link_normalized(bad) is None, "应该拒绝：%s" % bad)
+
+    check_eq(link_first_url("标题\n链接：https://mp.weixin.qq.com/s/abc？详情见原文。"),
+             "https://mp.weixin.qq.com/s/abc", "从一段文字里捞出链接并裁掉中文标点")
+    check_eq(link_first_url("看这个 https://example.com/a)."), "https://example.com/a",
+             "裁掉尾随标点")
+    check_eq(link_default_title("https://mp.weixin.qq.com/s/abc"), "微信公众号文章",
+             "公众号链接的兜底标题")
+    check_eq(link_default_title("https://example.com/a"), "example.com", "普通链接用域名")
+
+    incoming = link_parse_incoming(
+        "aihot://add?url=https%3A%2F%2Fmp.weixin.qq.com%2Fs%2Fabc%3Fx%3D1"
+        "&title=%E4%B8%80%E4%B8%AA%E6%A0%87%E9%A2%98"
     )
-    check_eq(
-        sub_next_dajiala_delay(now - datetime.timedelta(seconds=1), now),
-        0.0,
-        "Dajiala 间隔：已过",
+    check_eq(incoming, {"url": "https://mp.weixin.qq.com/s/abc?x=1", "title": "一个标题"},
+             "URL Scheme 解析 url 与 title")
+    check(link_parse_incoming("other://add?url=https%3A%2F%2Fexample.com") is None,
+          "只认 aihot://add")
+    check(link_parse_incoming("aihot://add?url=http%3A%2F%2Flocalhost%2Fa") is None,
+          "内层链接也要过安全边界")
+
+    title_html = fixture_text("link-title.html")
+    check_eq(link_parse_title(title_html), "Qwen4-Max 发布 & 价格揭晓",
+             "og:title 优先 + 实体解码（content 在 property 之前的顺序）")
+    check_eq(link_parse_title("<title>\n 普通 &amp; 后缀 \n</title>"), "普通 & 后缀",
+             "没有 og:title 时退回 title 标签")
+    check_eq(link_parse_title(
+                 "<title>微信公众平台</title><script>var msg_title = '公众号真标题';</script>"),
+             "公众号真标题", "通用 title → msg_title")
+    check(link_is_generic_title("微信公众平台")
+          and not link_is_generic_title("Qwen4-Max 发布"),
+          "通用标题识别")
+    check_eq(link_parse_title("<title>%s</title>" % ("标" * 300)),
+             "标" * LINK_MAX_TITLE, "标题限长")
+
+    check_eq(favorite_kind({"topic": {"id": "a"}, "favoritedAt": "x"}), "topic",
+             "老收藏（没有 kind）按 topic 推断")
+    check_eq(favorite_kind({"kind": "link", "link": {"url": "https://example.com"}}), "link",
+             "新收藏按 kind")
+
+    print("== 镜像 25：腾讯云元宝搜索（TC3 签名 / 响应）==")
+    docs_body = r'{"Limit": 1, "Filters": [{"Values": ["\u672a\u547d\u540d"], "Name": "instance-name"}]}'
+    check_eq(tc3_sha256_hex(docs_body),
+             "35e9c5b0e3ae67532d3c9f17ead6c90222632e5b1ff7f6e89887f1398934f064",
+             "官方示例：请求体哈希")
+    docs_headers = ("content-type:application/json; charset=utf-8\n"
+                    "host:cvm.tencentcloudapi.com\n"
+                    "x-tc-action:describeinstances\n")
+    docs_canonical = tc3_canonical_request(
+        "POST", "/", "", docs_headers, "content-type;host;x-tc-action",
+        tc3_sha256_hex(docs_body),
     )
+    check_eq(tc3_sha256_hex(docs_canonical),
+             "7019a55be8395899b900fb5564e4200d984910f34794a27cb3fb7d10ff6a1e84",
+             "官方示例：规范请求串哈希（注意 headers 后多一个换行）")
+    docs_sts = tc3_string_to_sign(1551113065, "2019-02-25/cvm/tc3_request", docs_canonical)
+    check_eq(docs_sts,
+             "TC3-HMAC-SHA256\n1551113065\n2019-02-25/cvm/tc3_request\n"
+             "7019a55be8395899b900fb5564e4200d984910f34794a27cb3fb7d10ff6a1e84",
+             "官方示例：待签名字符串")
+    check_eq(tc3_signature("test-secret-key", "2019-02-25", "cvm", docs_sts),
+             "99f8790e445f249f002afeffee9d8517ca11199c00cc10167fa4a443ba2c1d5b",
+             "参考签名（官方 SecretKey 打码，用固定测试密钥）")
+
+    wsa_body = '{"Query":"tencent"}'
+    wsa_headers = ("content-type:application/json; charset=utf-8\n"
+                   "host:wsa.tencentcloudapi.com\n"
+                   "x-tc-action:searchpro\n")
+    wsa_canonical = tc3_canonical_request(
+        "POST", "/", "", wsa_headers, "content-type;host;x-tc-action",
+        tc3_sha256_hex(wsa_body),
+    )
+    wsa_sts = tc3_string_to_sign(1551113065, "2019-02-25/wsa/tc3_request", wsa_canonical)
+    check_eq(tc3_signature("secret-test", "2019-02-25", "wsa", wsa_sts),
+             "21c3875fdf63e3730e7634a27ab6638bbbd36514a2cd1d8063f7a714692779b1",
+             "元宝搜索的参考签名（host/action/scope 都是 wsa）")
+
+    search_fixture = fixture_json("tencent-wsa-search.json")
+    pages = tencent_pages(search_fixture)
+    check_eq(len(pages), 2, "Pages 是 JSON 字符串数组，逐条解开")
+    check_eq(pages[0].get("title"), "人工智能创新加速我国产业转型升级", "第一条标题")
+    check_eq(tencent_pages({"Response": {"Pages": ["not-json"]}}), [], "坏条目跳过，不拖垮整次搜索")
+    error_fixture = fixture_json("tencent-wsa-error.json")
+    check_eq((error_fixture.get("Response") or {}).get("Error", {}).get("Code"),
+             "AuthFailure.SignatureFailure", "错误信封的 Code")
 
     print("")
     print("镜像测试：通过 %d 项" % _passed)

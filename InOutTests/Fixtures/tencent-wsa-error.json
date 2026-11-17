@@ -1,0 +1,9 @@
+{
+  "Response": {
+    "Error": {
+      "Code": "AuthFailure.SignatureFailure",
+      "Message": "The provided credentials could not be validated. Please check your signature is correct."
+    },
+    "RequestId": "ed93f3cb-f35e-473f-b9f3-0d451b8b79c6"
+  }
+}
