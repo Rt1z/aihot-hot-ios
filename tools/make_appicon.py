@@ -6,7 +6,7 @@
 优先用 Pillow 画得细一点；没有 Pillow 就退化到纯标准库（zlib + struct）的
 逐像素实现，保证 CI 上「一定有图标可用」，不会因为缺依赖让构建失败。
 
-图形：近黑底 + 一对方向相反的粗箭头（上入下出），对应 App 名 InOut。
+图形：浅灰白渐变底 + 一对方向相反的粗箭头（上橙下墨，入 / 出），对应 App 名 InOut。
 两条渲染路径共用下面这组几何常量，改形状只改这里。
 
 用法：python3 tools/make_appicon.py [输出目录]
@@ -20,11 +20,11 @@ import zlib
 
 SIZE = 1024
 
-# 站点色系：近黑底 + 热度橙
-BG_TOP = (18, 18, 21)
-BG_BOTTOM = (10, 10, 12)
-ORANGE = (255, 106, 43)
-WHITE = (242, 242, 243)
+# 浅色系：灰白渐变底 + 加深一点的热度橙 + 墨色
+BG_TOP = (250, 250, 252)
+BG_BOTTOM = (232, 232, 237)
+ORANGE = (233, 84, 28)
+INK = (28, 28, 32)
 
 # --- 箭头几何（1024 画布，水平成对、方向相反）---
 SHAFT_HALF = 55.0       # 箭杆半高
@@ -104,13 +104,13 @@ def _arrow_alpha(x, y, shaft, head):
 
 
 def _pixel(x, y):
-    """返回 (r, g, b)：垂直渐变背景 + 上入（橙）下出（白）一对箭头。"""
+    """返回 (r, g, b)：垂直渐变背景 + 上入（橙）下出（墨）一对箭头。"""
     t = y / float(SIZE - 1)
     color = tuple(int(round(a + (b - a) * t)) for a, b in zip(BG_TOP, BG_BOTTOM))
 
     a = _arrow_alpha(x, y, DOWN_SHAFT, DOWN_HEAD)
     if a > 0:
-        color = _blend(color, WHITE, a)
+        color = _blend(color, INK, a)
 
     a = _arrow_alpha(x, y, UP_SHAFT, UP_HEAD)
     if a > 0:
@@ -179,8 +179,8 @@ def write_pillow(path):
     def triangle(points, fill):
         draw.polygon([(px * scale, py * scale) for px, py in points], fill=fill)
 
-    rect(DOWN_SHAFT, WHITE)
-    triangle(DOWN_HEAD, WHITE)
+    rect(DOWN_SHAFT, INK)
+    triangle(DOWN_HEAD, INK)
     rect(UP_SHAFT, ORANGE)
     triangle(UP_HEAD, ORANGE)
 
